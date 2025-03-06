@@ -1,139 +1,80 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
+from datetime import datetime
 
 # Load Data
 @st.cache_data
 def load_data():
-    file_path = "Asset Work History.csv"  # Ensure this file is in the same directory
-    df = pd.read_csv(file_path, parse_dates=['OrderDate', 'ActualStartDateTime', 'ActualEndDateTime'])
-    df['Month Name'] = df['OrderDate'].dt.strftime('%B')  # Extract Month Name
-    df['Year'] = df['OrderDate'].dt.year.astype(int)  # Extract Year and ensure it's an integer
+    df = pd.read_excel("data/Final_Work_Order_History.xlsx")
+    df['OrderDate'] = pd.to_datetime(df['Final Work Order History[OrderDate]'], errors='coerce')
+    df['ActualEndDateTime'] = pd.to_datetime(df['Final Work Order History[ActualEndDateTime]'], errors='coerce')
     return df
 
 df = load_data()
 
-# Sidebar Theming
-with st.sidebar:
-    st.markdown(f'''
-        <style>
-        section[data-testid="stSidebar"] {{
-                width: 400px;
-                background-color: #32659C;
-                padding: 20px;
-                color: white;
-                }}
-        </style>
-    ''', unsafe_allow_html=True)
+# Title
+st.title("Maintenance KPI Dashboard")
 
-    st.title(":wrench: About the Dataset")
-    st.markdown("""
-        This dashboard provides an analysis of maintenance work orders, including planned and unplanned maintenance, 
-        work requests, downtime tracking, and performance metrics. The data helps track work order trends, 
-        completion rates, and efficiency across different locations.
-    """)
+# KPI Calculations
+today = pd.Timestamp(datetime.today())
+open_wo = df[df['ActualEndDateTime'].isna()]
+closed_wo = df[df['ActualEndDateTime'].notna()]
 
-    # Sidebar Filters
-    st.header("🔍 Filter Options")
-    
-    month_options = ['All'] + sorted(df['Month Name'].dropna().unique(), key=lambda x: pd.to_datetime(x, format='%B').month)
-    year_options = ['All'] + sorted(df['Year'].dropna().unique())
-    selected_months = st.sidebar.multiselect("Select Month", month_options, default=['All'])
-    selected_years = st.sidebar.multiselect("Select Year", year_options, default=['All'])
+# KPI Tiles
+st.header("Key Performance Indicators")
+kpi1, kpi2, kpi3 = st.columns(3)
 
-    work_type_options = ['All'] + list(df['WorkTypeValue'].dropna().unique())
-    selected_work_types = st.sidebar.multiselect("Select Work Type", work_type_options, default=['All'])
+# Open Work Orders
+kpi1.metric(label="Open Work Orders", value=len(open_wo))
 
-    work_status_options = ['All', 'Open', 'Backlog', 'Postponed', 'Waiting for Parts', 'Waiting for Approval', 'In Progress']
-    selected_work_status = st.sidebar.multiselect("Select Work Status", work_status_options, default=['All'])
+# Average Work Order Cycle Time
+cycle_time = (closed_wo['ActualEndDateTime'] - closed_wo['OrderDate']).dt.days.mean()
+kpi2.metric(label="Avg Cycle Time (Days)", value=f"{cycle_time:.2f}")
 
-    work_priority_options = ['All', 'P1 - High', 'P2 - Medium', 'P3 - Low']
-    selected_work_priority = st.sidebar.multiselect("Select Work Priority", work_priority_options, default=['All'])
+# Planned vs Reactive Maintenance
+def classify_work_type(wt):
+    if wt in ['Planned Maint.', 'Planned Corrective Maint.', 'Planned Improvement', 'Inspection']:
+        return "Planned"
+    elif wt in ['Breakdown', 'Unplanned Corrective Maint.']:
+        return "Reactive"
+    else:
+        return "Other"
 
-    location_options = ['All'] + list(df['ParentLocationValue'].dropna().unique())
-    selected_locations = st.sidebar.multiselect("Select Location", location_options, default=['All'])
+df['MaintenanceType'] = df['Final Work Order History[WorkType.WorkTypeName]'].apply(classify_work_type)
+planned_count = len(df[df['MaintenanceType'] == 'Planned'])
+reactive_count = len(df[df['MaintenanceType'] == 'Reactive'])
+total_maint = planned_count + reactive_count
 
-# Ensure Correct Work Priority Mapping
-df['WorkPriorityValue'] = df['WorkPriorityValue'].replace({
-    'P1': 'P1 - High',
-    'P2': 'P2 - Medium',
-    'P3': 'P3 - Low'
-})
+planned_pct = (planned_count / total_maint) * 100 if total_maint else 0
+reactive_pct = (reactive_count / total_maint) * 100 if total_maint else 0
 
-# Apply Filters
-filtered_df = df.copy()
-if 'All' not in selected_months:
-    filtered_df = filtered_df[filtered_df['Month Name'].isin(selected_months)]
-if 'All' not in selected_years:
-    filtered_df = filtered_df[filtered_df['Year'].isin(selected_years)]
-if 'All' not in selected_work_types:
-    filtered_df = filtered_df[filtered_df['WorkTypeValue'].isin(selected_work_types)]
-if 'All' not in selected_work_status:
-    filtered_df = filtered_df[filtered_df['WorkStatusValue'].isin(selected_work_status)]
-if 'All' not in selected_work_priority:
-    filtered_df = filtered_df[filtered_df['WorkPriorityValue'].isin(selected_work_priority)]
-if 'All' not in selected_locations:
-    filtered_df = filtered_df[filtered_df['ParentLocationValue'].isin(selected_locations)]
+kpi3.metric(label="Planned Maint. (%)", value=f"{planned_pct:.1f}%")
 
-# 🏗️ Main Dashboard
-st.title("Maintenance Work Order Dashboard")
+# Visualization Section
+st.header("Detailed Visualizations")
 
-# **KPI Summary Section**
-st.subheader("📊 Key Metrics")
+# Work Order Status Count
+fig_status = px.bar(df['Final Work Order History[WorkStatus.WorkStatusName]'].value_counts().reset_index(),
+                    x='index', y='Final Work Order History[WorkStatus.WorkStatusName]',
+                    labels={'index':'Work Status', 'Final Work Order History[WorkStatus.WorkStatusName]':'Count'},
+                    title="Work Orders by Status")
+st.plotly_chart(fig_status)
 
-col1, col2, col3 = st.columns(3)
-col1.metric(label="Total Work Orders", value=len(filtered_df))
-col2.metric(label="Average Duration (hrs)", value=round(filtered_df['Duration'].dropna().mean(), 2))
-col3.metric(label="Open Work Orders", value=len(filtered_df[filtered_df['WorkStatusValue'].isin(work_status_options)]))
+# Maintenance Type Pie Chart
+fig_pie = px.pie(names=['Planned', 'Reactive'], values=[planned_count, reactive_count],
+                 title='Maintenance Type Distribution')
+st.plotly_chart(fig_pie)
 
-col4, col5 = st.columns(2)
-col4.metric(label="Completed Work Orders", value=len(filtered_df[filtered_df['WorkStatusValue'] == 'Completed']))
-col5.metric(label="Closed Work Orders", value=len(filtered_df[filtered_df['WorkStatusValue'] == 'Closed']))
+# Work Order Cycle Time Trend
+closed_wo['Month'] = closed_wo['ActualEndDateTime'].dt.to_period('M').astype(str)
+monthly_cycle_time = closed_wo.groupby('Month').apply(lambda x: (x['ActualEndDateTime'] - x['OrderDate']).dt.days.mean()).reset_index()
+monthly_cycle_time.columns = ['Month', 'AvgCycleTime']
+fig_cycle = px.line(monthly_cycle_time, x='Month', y='AvgCycleTime', markers=True,
+                    title="Monthly Average Work Order Cycle Time")
+st.plotly_chart(fig_cycle)
 
-# **🔍 Open Maintenance KPIs (Expandable)**
-with st.expander("🛠 Open Maintenance KPIs", expanded=True):
-    col1, col2, col3 = st.columns(3)
-    col1.metric(label="Open Unplanned Work Orders", value="0")
-    col2.metric(label="Open Planned Maintenance", value="0")
-    col3.metric(label="Open Work Requests", value="0")
-
-# **📊 Maintenance Performance KPIs (Expandable)**
-with st.expander("📈 Maintenance Performance KPIs"):
-    col1, col2, col3 = st.columns(3)
-    col1.metric(label="Planned vs Unplanned", value="0.0% vs 0.0%")
-    col2.metric(label="Mean Time to Repair (MTTR)", value="N/A")
-    col3.metric(label="Mean Time Between Failures (MTBF)", value="N/A")
-
-# **📍 Work Orders by Location Chart**
-if not filtered_df.empty:
-    st.subheader("📍 Work Orders by Location")
-    location_chart = px.bar(
-        filtered_df['ParentLocationValue'].value_counts().reset_index(), 
-        x='ParentLocationValue', y='count', 
-        title='Work Orders by Location', 
-        labels={'ParentLocationValue': 'Location', 'count': 'Count'}
-    )
-    st.plotly_chart(location_chart)
-
-# **⚡ Work Orders by Priority Level Chart**
-if not filtered_df.empty:
-    st.subheader("⚡ Work Orders by Priority Level")
-    priority_chart = px.bar(
-        filtered_df['WorkPriorityValue'].value_counts().reset_index(), 
-        x='WorkPriorityValue', y='count', 
-        title='Work Orders by Priority', 
-        labels={'WorkPriorityValue': 'Priority Level', 'count': 'Count'}
-    )
-    st.plotly_chart(priority_chart)
-
-# **📄 Data Table (Expandable)**
-with st.expander("📄 Data Preview"):
-    st.dataframe(filtered_df)
-
-# **📥 Downloadable Report**
-st.download_button(
-    label="📥 Download Report as CSV", 
-    data=filtered_df.to_csv(index=False), 
-    file_name="maintenance_report.csv", 
-    mime="text/csv"
-)
+# Raw Data (Expandable)
+with st.expander("Show Raw Data"):
+    st.dataframe(df)
