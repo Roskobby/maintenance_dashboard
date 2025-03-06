@@ -1,90 +1,106 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.express as px
-from datetime import datetime
+from streamlit_elements import elements, mui, html
 
 # Load Data
 @st.cache_data
 def load_data():
-    df = pd.read_csv("Asset Work History.csv")
-    df['OrderDate'] = pd.to_datetime(df['OrderDate'], errors='coerce')
-    df['ActualEndDateTime'] = pd.to_datetime(df['ActualEndDateTime'], errors='coerce')
-    df['Month'] = df['OrderDate'].dt.strftime('%B')
-    df['Year'] = df['OrderDate'].dt.year
+    file_path = "Asset Work History.csv"  # Ensure this file is in the same directory
+    df = pd.read_csv(file_path, parse_dates=['OrderDate', 'ActualStartDateTime', 'ActualEndDateTime'])
+    df['Month Name'] = df['OrderDate'].dt.strftime('%B')  # Extract Month Name
+    df['Year'] = df['OrderDate'].dt.year.astype(int)  # Extract Year and ensure it's an integer
     return df
 
 df = load_data()
 
 # Sidebar Filters
-st.sidebar.header("Filter Work Orders")
-month_options = ['All'] + sorted(df['Month'].dropna().unique().tolist(), key=lambda x: datetime.strptime(x, '%B').month)
-year_options = ['All'] + sorted(df['Year'].dropna().unique().astype(str).tolist())
-selected_month = st.sidebar.multiselect("Select Month", month_options, default=['All'])
-selected_year = st.sidebar.multiselect("Select Year", year_options, default=['All'])
+st.sidebar.header("Filter Options")
 
+# Month and Year Filters with "All" Option
+month_options = ['All'] + sorted(df['Month Name'].dropna().unique(), key=lambda x: pd.to_datetime(x, format='%B').month)
+year_options = ['All'] + sorted(df['Year'].dropna().unique())
+selected_months = st.sidebar.multiselect("Select Month", month_options, default=['All'])
+selected_years = st.sidebar.multiselect("Select Year", year_options, default=['All'])
+
+# Work Type Multi-Select with "All" Option
+work_type_options = ['All'] + list(df['WorkType'].dropna().unique())
+selected_work_types = st.sidebar.multiselect("Select Work Type", work_type_options, default=['All'])
+
+# System Type Multi-Select with "All" Option
+system_type_options = ['All'] + list(df['SystemType'].dropna().unique())
+selected_system_types = st.sidebar.multiselect("Select System Type", system_type_options, default=['All'])
+
+# Failure Type Multi-Select with "All" Option
+failure_type_options = ['All'] + list(df['FailureType'].dropna().unique())
+selected_failure_types = st.sidebar.multiselect("Select Failure Type", failure_type_options, default=['All'])
+
+# Work Status Filter with "All" Option and Open Work Orders
+open_work_statuses = ["Open", "Backlog", "Postponed", "Waiting for Parts", "Waiting for Approval", "In Progress"]
+work_status_options = ['All'] + list(df['WorkStatus'].dropna().unique())
+selected_work_status = st.sidebar.multiselect("Select Work Status", work_status_options, default=['All'])
+
+# Work Priority Selector with "All" Option
+work_priority_options = ['All', 'P1 - High', 'P2 - Medium', 'P3 - Low']
+selected_work_priority = st.sidebar.multiselect("Select Work Priority", work_priority_options, default=['All'])
+
+
+df['WorkPriority'] = df['WorkPriority'].replace({
+    'P1': 'P1 - High',
+    'P2': 'P2 - Medium',
+    'P3': 'P3 - Low'
+})
+
+
+# Location Selector with "All" Option
+location_options = ['All'] + list(df['ParentLocation'].dropna().unique())
+selected_locations = st.sidebar.multiselect("Select Location", location_options, default=['All'])
+
+# Apply Filters (Excluding "All" selections)
 filtered_df = df.copy()
-if 'All' not in selected_month:
-    filtered_df = filtered_df[filtered_df['Month'].isin(selected_month)]
-if 'All' not in selected_year:
-    filtered_df = filtered_df[filtered_df['Year'].astype(str).isin(selected_year)]
+if 'All' not in selected_months:
+    filtered_df = filtered_df[filtered_df['Month Name'].isin(selected_months)]
+if 'All' not in selected_years:
+    filtered_df = filtered_df[filtered_df['Year'].isin(selected_years)]
+if 'All' not in selected_work_types:
+    filtered_df = filtered_df[filtered_df['WorkType'].isin(selected_work_types)]
+if 'All' not in selected_system_types:
+    filtered_df = filtered_df[filtered_df['SystemType'].isin(selected_system_types)]
+if 'All' not in selected_failure_types:
+    filtered_df = filtered_df[filtered_df['FailureType'].isin(selected_failure_types)]
+if 'All' not in selected_work_status:
+    filtered_df = filtered_df[filtered_df['WorkStatus'].isin(selected_work_status)]
+if 'All' not in selected_work_priority:
+    filtered_df = filtered_df[filtered_df['WorkPriority'].isin(selected_work_priority)]
+if 'All' not in selected_locations:
+    filtered_df = filtered_df[filtered_df['ParentLocation'].isin(selected_locations)]
 
-# KPI Calculations
-if 'Work Status' in filtered_df.columns:
-    open_wo = filtered_df[filtered_df['Work Status'].isin(['Open', 'Backlog'])]
-    closed_wo = filtered_df[filtered_df['Work Status'].isin(['Closed', 'Completed', 'Completed - Was Backlog'])]
-    cancelled_wo_count = filtered_df[filtered_df['Work Status'] == 'Cancelled'].shape[0]
-else:
-    open_wo, closed_wo, cancelled_wo_count = pd.DataFrame(), pd.DataFrame(), 0
+# Main Dashboard
+st.title("Maintenance Work Order Dashboard")
 
-cycle_time = (closed_wo['ActualEndDateTime'] - closed_wo['OrderDate']).dt.days.mean() if not closed_wo.empty else 0
-
-# Work Order Summary by Location
-if 'ParentLocation' in filtered_df.columns:
-    location_counts = filtered_df['ParentLocation'].value_counts().reset_index()
-    location_counts.columns = ['ParentLocation', 'Count']
-else:
-    location_counts = pd.DataFrame(columns=['ParentLocation', 'Count'])
-
-# KPI Display
-st.title("Maintenance KPI Dashboard")
-st.header("Key Performance Indicators")
-kpi1, kpi2, kpi3 = st.columns(3)
-kpi1.metric(label="Open Work Orders", value=open_wo.shape[0])
-kpi2.metric(label="Avg Cycle Time (Days)", value=f"{cycle_time:.2f}")
-kpi3.metric(label="Cancelled Work Orders", value=cancelled_wo_count)
-
-# Visualization Section
-st.header("Detailed Visualizations")
-
-# Work Order Status Counts
-if 'Work Status' in filtered_df.columns:
-    status_counts = filtered_df['Work Status'].value_counts().reset_index()
-    status_counts.columns = ['Status', 'Count']
-    fig_status = px.bar(status_counts, x='Status', y='Count', title="Work Orders by Status")
-    st.plotly_chart(fig_status)
+# Styled Cards with Streamlit Elements
+with elements("dashboard"):  
+    mui.Grid(container=True, spacing=2, children=[
+        mui.Paper(children=[mui.Typography("Total Work Orders"), mui.Typography(f"{len(filtered_df)}", variant="h4")], sx={"padding": 2, "backgroundColor": "#E3F2FD"}),
+        mui.Paper(children=[mui.Typography("Average Duration (hrs)"), mui.Typography(f"{round(filtered_df['Duration'].dropna().mean(), 2)}", variant="h4")], sx={"padding": 2, "backgroundColor": "#E8F5E9"}),
+        mui.Paper(children=[mui.Typography("Open Work Orders"), mui.Typography(f"{len(filtered_df[filtered_df['WorkStatus'].isin(open_work_statuses)])}", variant="h4")], sx={"padding": 2, "backgroundColor": "#FFEBEE"}),
+        mui.Paper(children=[mui.Typography("Completed Work Orders"), mui.Typography(f"{len(filtered_df[filtered_df['WorkStatus'] == 'Completed'])}", variant="h4")], sx={"padding": 2, "backgroundColor": "#FFF3E0"}),
+        mui.Paper(children=[mui.Typography("Closed Work Orders"), mui.Typography(f"{len(filtered_df[filtered_df['WorkStatus'] == 'Closed'])}", variant="h4")], sx={"padding": 2, "backgroundColor": "#ECEFF1"})
+    ])
 
 # Work Orders by Location
-if not location_counts.empty:
-    fig_location = px.bar(location_counts, x='ParentLocation', y='Count', title="Work Orders by Location")
-    st.plotly_chart(fig_location)
+if not filtered_df.empty:
+    location_chart = px.bar(filtered_df['ParentLocation']._counts().reset_index(), x='ParentLocation', y='count', title='Work Orders by Location', labels={'ParentLocation': 'Location', 'count': 'Count'})
+    st.plotly_chart(location_chart)
 
-# Monthly Work Order Cycle Time Trend
-if not closed_wo.empty:
-    closed_wo['Month'] = closed_wo['ActualEndDateTime'].dt.to_period('M').astype(str)
-    monthly_cycle_time = closed_wo.groupby('Month').apply(lambda x: (x['ActualEndDateTime'] - x['OrderDate']).dt.days.mean()).reset_index()
-    monthly_cycle_time.columns = ['Month', 'AvgCycleTime']
-    cycle_fig = px.line(monthly_cycle_time, x='Month', y='AvgCycleTime', markers=True, title="Monthly Average Work Order Cycle Time")
-    st.plotly_chart(cycle_fig)
+# Work Orders by Priority Level
+if not filtered_df.empty:
+    priority_chart = px.bar(filtered_df['WorkPriority']._counts().reset_index(), x='WorkPriority', y='count', title='Work Orders by Priority', labels={'WorkPriority': 'Priority Level', 'count': 'Count'})
+    st.plotly_chart(priority_chart)
 
-# Raw Data (Expandable)
-with st.expander("Show Raw Data"):
-    st.dataframe(filtered_df)
+# Data Table
+st.write("### Data Preview")
+st.dataframe(filtered_df)
 
 # Downloadable Report
-st.download_button(
-    label="📥 Download Report as CSV",
-    data=filtered_df.to_csv(index=False),
-    file_name="maintenance_report.csv",
-    mime="text/csv"
-)
+st.download_button(label="Download Report as CSV", data=filtered_df.to_csv(index=False), file_name="maintenance_report.csv", mime="text/csv")
