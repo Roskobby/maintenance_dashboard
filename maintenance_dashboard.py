@@ -18,16 +18,17 @@ df = load_data()
 st.title("Maintenance KPI Dashboard")
 
 # KPI Calculations
-today = pd.Timestamp(datetime.today())
-open_wo = df[df['ActualEndDateTime'].isna()]
-closed_wo = df[df['ActualEndDateTime'].notna()]
+open_wo = df[df['WorkStatus'].isin(['Open', 'Backlog'])]
+closed_wo = df[df['WorkStatus'].isin(['Closed', 'Completed', 'Completed - Was Backlog'])]
+cancelled_wo_count = df[df['WorkStatus'] == 'Cancelled'].shape[0]
 
 # KPI Tiles
 st.header("Key Performance Indicators")
 kpi1, kpi2, kpi3 = st.columns(3)
 
 # Open Work Orders
-kpi1.metric(label="Open Work Orders", value=len(open_wo))
+open_wo_count = open_wo.shape[0]
+kpi1.metric(label="Open Work Orders", value=open_wo_count)
 
 # Average Work Order Cycle Time
 cycle_time = (closed_wo['ActualEndDateTime'] - closed_wo['OrderDate']).dt.days.mean()
@@ -43,18 +44,20 @@ def classify_work_type(wt):
         return "Other"
 
 df['MaintenanceType'] = df['WorkType'].apply(classify_work_type)
-planned_count = len(df[df['MaintenanceType'] == 'Planned'])
-reactive_count = len(df[df['MaintenanceType'] == 'Reactive'])
+planned_count = df[df['MaintenanceType'] == 'Planned'].shape[0]
+reactive_count = df[df['MaintenanceType'] == 'Reactive'].shape[0]
 total_maint = planned_count + reactive_count
 
-planned_pct = (planned_count / total_maint) * 100 if total_maint else 0
+planned_pct = (planned_count / total_maint) * 100 if (total_maint := planned_count + reactive_count) else 0
 reactive_pct = (reactive_count / total_maint) * 100 if total_maint else 0
 
+kpi2.metric(label="Avg Cycle Time (Days)", value=f"{cycle_time:.2f}")
 kpi3.metric(label="Planned Maint. (%)", value=f"{planned_pct:.1f}%")
 
 # Visualization Section
 st.header("Detailed Visualizations")
 
+# Work Order Status Count
 # Work Order Status Count
 fig_status = px.bar(df['WorkStatus'].value_counts().reset_index(),
                     x='index', y='WorkStatus',
@@ -71,9 +74,9 @@ st.plotly_chart(fig_pie)
 closed_wo['Month'] = closed_wo['ActualEndDateTime'].dt.to_period('M').astype(str)
 monthly_cycle_time = closed_wo.groupby('Month').apply(lambda x: (x['ActualEndDateTime'] - x['OrderDate']).dt.days.mean()).reset_index()
 monthly_cycle_time.columns = ['Month', 'AvgCycleTime']
-fig_cycle = px.line(monthly_cycle_time, x='Month', y='AvgCycleTime', markers=True,
+cycle_fig = px.line(monthly_cycle_time, x='Month', y='AvgCycleTime', markers=True,
                     title="Monthly Average Work Order Cycle Time")
-st.plotly_chart(fig_cycle)
+st.plotly_chart(cycle_fig)
 
 # Raw Data (Expandable)
 with st.expander("Show Raw Data"):
