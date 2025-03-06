@@ -7,9 +7,9 @@ from datetime import datetime
 # Load Data
 @st.cache_data
 def load_data():
-    df = pd.read_excel("data/Final_Work_Order_History.xlsx")
-    df['OrderDate'] = pd.to_datetime(df['Final Work Order History[OrderDate]'], errors='coerce')
-    df['ActualEndDateTime'] = pd.to_datetime(df['Final Work Order History[ActualEndDateTime]'], errors='coerce')
+    df = pd.read_csv("Asset Work History.csv")
+    df['OrderDate'] = pd.to_datetime(df['OrderDate'], errors='coerce')
+    df['ActualEndDateTime'] = pd.to_datetime(df['ActualEndDateTime'], errors='coerce')
     return df
 
 df = load_data()
@@ -42,7 +42,7 @@ def classify_work_type(wt):
     else:
         return "Other"
 
-df['MaintenanceType'] = df['Final Work Order History[WorkType.WorkTypeName]'].apply(classify_work_type)
+df['MaintenanceType'] = df['WorkType'].apply(classify_work_type)
 planned_count = len(df[df['MaintenanceType'] == 'Planned'])
 reactive_count = len(df[df['MaintenanceType'] == 'Reactive'])
 total_maint = planned_count + reactive_count
@@ -56,9 +56,9 @@ kpi3.metric(label="Planned Maint. (%)", value=f"{planned_pct:.1f}%")
 st.header("Detailed Visualizations")
 
 # Work Order Status Count
-fig_status = px.bar(df['Final Work Order History[WorkStatus.WorkStatusName]'].value_counts().reset_index(),
-                    x='index', y='Final Work Order History[WorkStatus.WorkStatusName]',
-                    labels={'index':'Work Status', 'Final Work Order History[WorkStatus.WorkStatusName]':'Count'},
+fig_status = px.bar(df['WorkStatus'].value_counts().reset_index(),
+                    x='index', y='WorkStatus',
+                    labels={'index':'Work Status', 'WorkStatus':'Count'},
                     title="Work Orders by Status")
 st.plotly_chart(fig_status)
 
