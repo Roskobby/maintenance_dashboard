@@ -30,14 +30,21 @@ if 'All' not in selected_year:
     filtered_df = filtered_df[filtered_df['Year'].astype(str).isin(selected_year)]
 
 # KPI Calculations
-open_wo = filtered_df[filtered_df['Work Status'].isin(['Open', 'Backlog'])]
-closed_wo = filtered_df[filtered_df['Work Status'].isin(['Closed', 'Completed', 'Completed - Was Backlog'])]
-cancelled_wo_count = filtered_df[filtered_df['Work Status'] == 'Cancelled'].shape[0]
-cycle_time = (closed_wo['ActualEndDateTime'] - closed_wo['OrderDate']).dt.days.mean()
+if 'Work Status' in filtered_df.columns:
+    open_wo = filtered_df[filtered_df['Work Status'].isin(['Open', 'Backlog'])]
+    closed_wo = filtered_df[filtered_df['Work Status'].isin(['Closed', 'Completed', 'Completed - Was Backlog'])]
+    cancelled_wo_count = filtered_df[filtered_df['Work Status'] == 'Cancelled'].shape[0]
+else:
+    open_wo, closed_wo, cancelled_wo_count = pd.DataFrame(), pd.DataFrame(), 0
+
+cycle_time = (closed_wo['ActualEndDateTime'] - closed_wo['OrderDate']).dt.days.mean() if not closed_wo.empty else 0
 
 # Work Order Summary by Location
-location_counts = filtered_df['ParentLocation'].value_counts().reset_index()
-location_counts.columns = ['ParentLocation', 'Count']
+if 'ParentLocation' in filtered_df.columns:
+    location_counts = filtered_df['ParentLocation'].value_counts().reset_index()
+    location_counts.columns = ['ParentLocation', 'Count']
+else:
+    location_counts = pd.DataFrame(columns=['ParentLocation', 'Count'])
 
 # KPI Display
 st.title("Maintenance KPI Dashboard")
@@ -51,21 +58,24 @@ kpi3.metric(label="Cancelled Work Orders", value=cancelled_wo_count)
 st.header("Detailed Visualizations")
 
 # Work Order Status Counts
-status_counts = filtered_df['Work Status'].value_counts().reset_index()
-status_counts.columns = ['Status', 'Count']
-fig_status = px.bar(status_counts, x='Status', y='Count', title="Work Orders by Status")
-st.plotly_chart(fig_status)
+if 'Work Status' in filtered_df.columns:
+    status_counts = filtered_df['Work Status'].value_counts().reset_index()
+    status_counts.columns = ['Status', 'Count']
+    fig_status = px.bar(status_counts, x='Status', y='Count', title="Work Orders by Status")
+    st.plotly_chart(fig_status)
 
 # Work Orders by Location
-fig_location = px.bar(location_counts, x='ParentLocation', y='Count', title="Work Orders by Location")
-st.plotly_chart(fig_location)
+if not location_counts.empty:
+    fig_location = px.bar(location_counts, x='ParentLocation', y='Count', title="Work Orders by Location")
+    st.plotly_chart(fig_location)
 
 # Monthly Work Order Cycle Time Trend
-closed_wo['Month'] = closed_wo['ActualEndDateTime'].dt.to_period('M').astype(str)
-monthly_cycle_time = closed_wo.groupby('Month').apply(lambda x: (x['ActualEndDateTime'] - x['OrderDate']).dt.days.mean()).reset_index()
-monthly_cycle_time.columns = ['Month', 'AvgCycleTime']
-cycle_fig = px.line(monthly_cycle_time, x='Month', y='AvgCycleTime', markers=True, title="Monthly Average Work Order Cycle Time")
-st.plotly_chart(cycle_fig)
+if not closed_wo.empty:
+    closed_wo['Month'] = closed_wo['ActualEndDateTime'].dt.to_period('M').astype(str)
+    monthly_cycle_time = closed_wo.groupby('Month').apply(lambda x: (x['ActualEndDateTime'] - x['OrderDate']).dt.days.mean()).reset_index()
+    monthly_cycle_time.columns = ['Month', 'AvgCycleTime']
+    cycle_fig = px.line(monthly_cycle_time, x='Month', y='AvgCycleTime', markers=True, title="Monthly Average Work Order Cycle Time")
+    st.plotly_chart(cycle_fig)
 
 # Raw Data (Expandable)
 with st.expander("Show Raw Data"):
