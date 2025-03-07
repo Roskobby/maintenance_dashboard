@@ -1,4 +1,6 @@
-streamlit
-pandas
-plotly
-numpy
+streamlit==1.43.0
+pandas==2.2.3
+plotly==6.0.0
+streamlit-elements
+openpyxl  # For reading Excel files with pd.read_excel
+numpy==1.21.2
