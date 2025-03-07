@@ -226,7 +226,9 @@ if not filtered_df.empty and 'WorkPriority' in filtered_df:
 # Grouped Metrics by Location (Expandable)
 with st.expander("🌐 Metrics by Location"):
     location_group = filtered_df.groupby('ParentLocation').apply(calculate_work_order_metrics).reset_index()
-    location_group = location_group[['ParentLocation', 'open_wo', 'avg_aging', 'mttr_hrs']]
+    # Normalize the dictionary into columns
+    location_group = pd.json_normalize(location_group[0])
+    location_group = location_group[['open_wo', 'avg_aging', 'mttr_hrs']].join(filtered_df[['ParentLocation']].drop_duplicates().reset_index(drop=True))
     st.dataframe(location_group.style.format({
         'avg_aging': '{:.2f}',
         'mttr_hrs': '{:.2f}'
