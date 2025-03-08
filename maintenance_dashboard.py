@@ -23,8 +23,12 @@ def load_data():
 
 df = load_data()
 
-# Current date for aging calculations (dynamic)
-current_date = pd.to_datetime(datetime.datetime.now().date())
+# Current date for aging calculations (dynamic with error handling)
+try:
+    current_date = pd.to_datetime(datetime.now().date())
+except AttributeError as e:
+    st.error("Error setting current date. Using a default date (2025-03-07) instead. Please check your environment.")
+    current_date = pd.to_datetime("2025-03-07")
 
 # Sidebar Theming
 with st.sidebar:
