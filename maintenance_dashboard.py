@@ -23,8 +23,8 @@ def load_data():
 
 df = load_data()
 
-# Current date for aging calculations
-current_date = pd.to_datetime("2025-03-07")
+# Current date for aging calculations (dynamic)
+current_date = pd.to_datetime(datetime.datetime.now().date())
 
 # Sidebar Theming
 with st.sidebar:
@@ -49,9 +49,15 @@ with st.sidebar:
     st.header("🔍 Filter Options")
     month_options = ['All'] + sorted(df['Month Name'].dropna().unique(), key=lambda x: pd.to_datetime(x, format='%B').month)
     year_options = ['All'] + sorted(df['Year'].dropna().unique())
-    # Default filter: 2025 YTD (Jan to March as of March 07, 2025)
-    default_months = ['January', 'February', 'March']
-    default_years = [2025]
+    
+    # Dynamic YTD default: Current year and months from January to current month
+    current_year = current_date.year
+    current_month_num = current_date.month
+    month_names = ['January', 'February', 'March', 'April', 'May', 'June', 
+                   'July', 'August', 'September', 'October', 'November', 'December']
+    default_months = month_names[:current_month_num]  # e.g., if current month is March, select January to March
+    default_years = [current_year]
+    
     selected_months = st.multiselect("Select Month", month_options, default=default_months)
     selected_years = st.multiselect("Select Year", year_options, default=default_years)
 
