@@ -23,12 +23,9 @@ def load_data():
 
 df = load_data()
 
-# Current date for aging calculations (dynamic with error handling)
-try:
-    current_date = pd.to_datetime(datetime.now().date())
-except AttributeError as e:
-    st.error("Error setting current date. Using a default date (2025-03-07) instead. Please check your environment.")
-    current_date = pd.to_datetime("2025-03-07")
+# Current date for aging calculations (dynamic with simplified approach)
+current_date = pd.to_datetime(datetime.now().date())
+st.write(f"Current date set to: {current_date}")  # Debug output to confirm
 
 # Sidebar Theming
 with st.sidebar:
@@ -79,17 +76,17 @@ with st.sidebar:
 
 # Apply Filters
 filtered_df = df.copy()
-if selected_months:
+if selected_months and 'All' not in selected_months:
     filtered_df = filtered_df[filtered_df['Month Name'].isin(selected_months)]
-if selected_years:
+if selected_years and 'All' not in selected_years:
     filtered_df = filtered_df[filtered_df['Year'].isin(selected_years)]
-if selected_work_types:
+if selected_work_types and 'All' not in selected_work_types:
     filtered_df = filtered_df[filtered_df['WorkType'].isin(selected_work_types)]
-if selected_work_status:
+if selected_work_status and 'All' not in selected_work_status:
     filtered_df = filtered_df[filtered_df['WorkStatus'].isin(selected_work_status)]
-if selected_work_priority:
+if selected_work_priority and 'All' not in selected_work_priority:
     filtered_df = filtered_df[filtered_df['WorkPriority'].isin(selected_work_priority)]
-if selected_locations:
+if selected_locations and 'All' not in selected_locations:
     filtered_df = filtered_df[filtered_df['ParentLocation'].isin(selected_locations)]
 
 # KPI Calculations with Definitions
