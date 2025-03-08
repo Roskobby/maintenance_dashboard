@@ -47,24 +47,24 @@ with st.sidebar:
 
     # Sidebar Filters
     st.header("🔍 Filter Options")
-    month_options = sorted(df['Month Name'].dropna().unique(), key=lambda x: pd.to_datetime(x, format='%B').month)
-    year_options = sorted(df['Year'].dropna().unique())
-    # Default filter: 2025 YTD (Jan to March)
+    month_options = ['All'] + sorted(df['Month Name'].dropna().unique(), key=lambda x: pd.to_datetime(x, format='%B').month)
+    year_options = ['All'] + sorted(df['Year'].dropna().unique())
+    # Default filter: 2025 YTD (Jan to March as of March 07, 2025)
     default_months = ['January', 'February', 'March']
     default_years = [2025]
     selected_months = st.multiselect("Select Month", month_options, default=default_months)
     selected_years = st.multiselect("Select Year", year_options, default=default_years)
 
-    work_type_options = list(df['WorkType'].dropna().unique())
+    work_type_options = ['All'] + list(df['WorkType'].dropna().unique())
     selected_work_types = st.multiselect("Select Work Type", work_type_options, default=[work_type_options[0]])
 
-    work_status_options = list(df['WorkStatus'].dropna().unique())
+    work_status_options = ['All'] + list(df['WorkStatus'].dropna().unique())
     selected_work_status = st.multiselect("Select Work Status", work_status_options, default=[work_status_options[0]])
 
-    work_priority_options = ['P1 - High', 'P2 - Medium', 'P3 - Low']
+    work_priority_options = ['All', 'P1 - High', 'P2 - Medium', 'P3 - Low']
     selected_work_priority = st.multiselect("Select Work Priority", work_priority_options, default=[work_priority_options[0]])
 
-    location_options = list(df['ParentLocation'].dropna().unique())
+    location_options = ['All'] + list(df['ParentLocation'].dropna().unique())
     selected_locations = st.multiselect("Select Location", location_options, default=[location_options[0]])
 
 # Apply Filters
