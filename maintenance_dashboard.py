@@ -19,6 +19,11 @@ def load_data():
     })
     # Recalculate Duration if missing or incorrect
     df['Duration'] = (df['ActualEndDateTime'] - df['ActualStartDateTime']).dt.total_seconds() / 3600  # Convert to hours
+    
+    # Calculate RequiredByDate as the Sunday at the end of the week of OrderDate
+    # weekday(): Monday=0, Sunday=6; Add (6 - weekday) days to get to Sunday
+    df['RequiredByDate'] = df['OrderDate'] + pd.to_timedelta((6 - df['OrderDate'].dt.weekday) % 7, unit='D')
+    
     return df
 
 df = load_data()
@@ -102,25 +107,26 @@ def calculate_work_order_metrics(df):
     pending_counts = {status: len(df[df["WorkStatus"] == status]) for status in pending_statuses}
     
     # 3. Work Order Timing Metrics
-    open_wo_df = df[~df["WorkStatus"].isin(["Closed", "Completed", "Closed - Was Backlog"])]
-    aging_days = (current_date - pd.to_datetime(open_wo_df["OrderDate"])).dt.days
+    open_wo_df = df[~df["WorkStatus"].isin(["Closed", "Completed", "Closed - Was Backlog"])].copy()
+    aging_days = (current_date - pd.to_datetime(open_wo_df["OrderDate"], errors="coerce")).dt.days
     avg_aging = aging_days.mean() if not aging_days.empty else 0
     
-    pm_open_wo_df = open_wo_df[open_wo_df["WorkType"].isin(["Planned Maint.", "Planned Corrective Maint.", "Planned Improvement", "Inspection", "Projects"])]
-    pm_aging_days = (current_date - pd.to_datetime(pm_open_wo_df["OrderDate"])).dt.days
+    pm_open_wo_df = open_wo_df[open_wo_df["WorkType"].isin(["Planned Maint."])].copy()
+    pm_aging_days = (current_date - pd.to_datetime(pm_open_wo_df["OrderDate"], errors="coerce")).dt.days
     avg_pm_aging = pm_aging_days.mean() if not pm_aging_days.empty else 0
     
     completed_wo_df = df[df["WorkStatus"] == "Completed"]
-    cycle_time_days = (pd.to_datetime(completed_wo_df["ActualEndDateTime"]) - pd.to_datetime(completed_wo_df["OrderDate"])).dt.total_seconds() / 86400
+    cycle_time_days = (pd.to_datetime(completed_wo_df["ActualEndDateTime"], errors="coerce") - 
+                       pd.to_datetime(completed_wo_df["OrderDate"], errors="coerce")).dt.total_seconds() / 86400
     avg_cycle_time = cycle_time_days.mean() if not cycle_time_days.empty else 0
     
     # 4. Maintenance Backlog Metrics
     backlog_count = open_wo
-    backlog_weeks_df = (current_date - pd.to_datetime(open_wo_df["OrderDate"])).dt.days / 7
+    backlog_weeks_df = (current_date - pd.to_datetime(open_wo_df["OrderDate"], errors="coerce")).dt.days / 7
     backlog_weeks_flag = len(backlog_weeks_df[backlog_weeks_df > 2])  # Flag WOs exceeding 2 weeks
     
     # 5. Maintenance Type Metrics
-    completed_df = df[df["WorkStatus"].isin(["Completed", "Closed", "Closed - Was Backlog"])]
+    completed_df = df[df["WorkStatus"].isin(["Completed", "Closed", "Closed - Was Backlog"])].copy()
     planned_types = ["Planned Maint.", "Planned Corrective Maint.", "Planned Improvement", "Inspection", "Projects"]
     corrective_types = ["Unplanned Corrective Maint.", "Breakdown"]
     planned_wo = len(completed_df[completed_df["WorkType"].isin(planned_types)])
@@ -129,29 +135,52 @@ def calculate_work_order_metrics(df):
     planned_pct = (planned_wo / total_completed * 100) if total_completed > 0 else 0
     corrective_pct = (corrective_wo / total_completed * 100) if total_completed > 0 else 0
     
-    project_ytd = len(completed_df[(completed_df["WorkType"] == "Projects") & (completed_df["Year"] == 2025)])
+    project_ytd = len(completed_df[(completed_df["WorkType"] == "Projects") & (completed_df["Year"] == current_date.year)])
     emergency_wo = len(completed_df[completed_df["WorkType"].isin(corrective_types)])  # Assuming no downtime flag
     emergency_pct = (emergency_wo / total_completed * 100) if total_completed > 0 else 0
     
-    # 6. Maintenance Schedule Compliance
-    pm_wo = df[df["WorkType"].isin(planned_types)]
-    pm_completed_on_time = len(pm_wo[(pd.to_datetime(pm_wo["ActualEndDateTime"], errors="coerce") <= pd.to_datetime(pm_wo["RequiredByDate"], errors="coerce")) & 
-                                    pm_wo["WorkStatus"].isin(["Completed", "Closed", "Closed - Was Backlog"])])
+    # 6. Maintenance Schedule Compliance (using calculated RequiredByDate)
+    pm_wo = df[df["WorkType"].isin(planned_types)].copy()
+    pm_wo["ActualEndDateTime"] = pd.to_datetime(pm_wo["ActualEndDateTime"], errors="coerce")
+    pm_wo["RequiredByDate"] = pd.to_datetime(pm_wo["RequiredByDate"], errors="coerce")
+    
+    st.write("Debug - PM WO Count:", len(pm_wo))  # Debug output
+    st.write("Debug - PM WO with RequiredByDate:", len(pm_wo[pm_wo["RequiredByDate"].notna()]))  # Debug output
+    
+    pm_completed_on_time = len(pm_wo[(pm_wo["ActualEndDateTime"] <= pm_wo["RequiredByDate"]) & 
+                                    pm_wo["WorkStatus"].isin(["Completed", "Closed", "Closed - Was Backlog"]) & 
+                                    pm_wo["ActualEndDateTime"].notna() & pm_wo["RequiredByDate"].notna()])
     total_pm_scheduled = len(pm_wo[pm_wo["RequiredByDate"].notna()])
     pm_compliance = (pm_completed_on_time / total_pm_scheduled * 100) if total_pm_scheduled > 0 else 0
     
-    all_scheduled = df[df["RequiredByDate"].notna()]
-    all_completed_on_time = len(all_scheduled[(pd.to_datetime(all_scheduled["ActualEndDateTime"], errors="coerce") <= pd.to_datetime(all_scheduled["RequiredByDate"], errors="coerce")) & 
-                                             all_scheduled["WorkStatus"].isin(["Completed", "Closed", "Closed - Was Backlog"])])
-    total_scheduled = len(all_scheduled)
+    st.write("Debug - PM Completed On Time:", pm_completed_on_time)  # Debug output
+    st.write("Debug - Total PM Scheduled:", total_pm_scheduled)  # Debug output
+    
+    # Overall Compliance
+    all_scheduled = df.copy()
+    all_scheduled["ActualEndDateTime"] = pd.to_datetime(all_scheduled["ActualEndDateTime"], errors="coerce")
+    all_scheduled["RequiredByDate"] = pd.to_datetime(all_scheduled["RequiredByDate"], errors="coerce")
+    
+    all_completed_on_time = len(all_scheduled[(all_scheduled["ActualEndDateTime"] <= all_scheduled["RequiredByDate"]) & 
+                                             all_scheduled["WorkStatus"].isin(["Completed", "Closed", "Closed - Was Backlog"]) & 
+                                             all_scheduled["ActualEndDateTime"].notna() & all_scheduled["RequiredByDate"].notna()])
+    total_scheduled = len(all_scheduled[all_scheduled["RequiredByDate"].notna()])
     overall_compliance = (all_completed_on_time / total_scheduled * 100) if total_scheduled > 0 else 0
     
     # 7. Reliability Metrics
     repair_df = df[(df["WorkType"].isin(["Unplanned Corrective Maint.", "Breakdown", "Planned Corrective Maint."])) & 
-                  (df["WorkStatus"].isin(["Closed", "Completed", "Closed - Was Backlog"]))]
+                  (df["WorkStatus"].isin(["Closed", "Completed", "Closed - Was Backlog"])].copy())
     repair_times = (pd.to_datetime(repair_df["ActualEndDateTime"], errors="coerce") - 
                    pd.to_datetime(repair_df["ActualStartDateTime"], errors="coerce")).dt.total_seconds() / 3600
     mttr_hrs = repair_times.mean() if not repair_times.empty else 0
+    
+    # 8. PM Backlog Aging (for Planned Maint. only)
+    pm_backlog_df = pm_wo[(pm_wo["ActualEndDateTime"] > pm_wo["RequiredByDate"]) & 
+                          (pm_wo["WorkStatus"].isin(["Completed", "Closed", "Closed - Was Backlog"])) & 
+                          (pm_wo["ActualEndDateTime"].notna()) & (pm_wo["RequiredByDate"].notna())].copy()
+    pm_backlog_aging_days = (pd.to_datetime(pm_backlog_df["ActualEndDateTime"], errors="coerce") - 
+                             pd.to_datetime(pm_backlog_df["RequiredByDate"], errors="coerce")).dt.days
+    avg_pm_backlog_aging = pm_backlog_aging_days.mean() if not pm_backlog_aging_days.empty else 0
     
     return {
         "open_wo": open_wo, "closed_wo": closed_wo, "completed_wo": completed_wo, "in_progress_wo": in_progress_wo,
@@ -160,7 +189,8 @@ def calculate_work_order_metrics(df):
         "backlog_count": backlog_count, "backlog_weeks_flag": backlog_weeks_flag,
         "planned_pct": planned_pct, "corrective_pct": corrective_pct, "project_ytd": project_ytd, "emergency_pct": emergency_pct,
         "pm_compliance": pm_compliance, "overall_compliance": overall_compliance,
-        "mttr_hrs": mttr_hrs
+        "mttr_hrs": mttr_hrs,
+        "avg_pm_backlog_aging": avg_pm_backlog_aging  # New metric for PM backlog aging
     }
 
 metrics = calculate_work_order_metrics(filtered_df)
@@ -205,10 +235,10 @@ st.subheader("📏 Compliance Metrics")
 col11, col12 = st.columns(2)
 col11.markdown(f"**PM Compliance: {round(metrics['pm_compliance'], 2)}%**",
                help="(Count of planned WOs with ActualEndDateTime ≤ RequiredByDate and WorkStatus in ['Completed', 'Closed', 'Closed - Was Backlog'] / Count of planned WOs with RequiredByDate) * 100")
-col11.progress(min(metrics["pm_compliance"] / 100, 1.0))
+col11.progress(metrics["pm_compliance"] / 100 if metrics["pm_compliance"] <= 100 else 1.0)  # Cap at 100%
 col12.markdown(f"**Overall Compliance: {round(metrics['overall_compliance'], 2)}%**",
                help="(Count of all WOs with ActualEndDateTime ≤ RequiredByDate and WorkStatus in ['Completed', 'Closed', 'Closed - Was Backlog'] / Count of all WOs with RequiredByDate) * 100")
-col12.progress(min(metrics["overall_compliance"] / 100, 1.0))
+col12.progress(metrics["overall_compliance"] / 100 if metrics["overall_compliance"] <= 100 else 1.0)  # Cap at 100%
 
 # Compliance Trend by Location (Inspired by GPMS)
 if not filtered_df.empty:
@@ -220,9 +250,9 @@ if not filtered_df.empty:
         x=location_compliance['ParentLocation'], y=location_compliance['PM Compliance'],
         marker_color='#32659C'
     ))
-    fig_compliance.add_shape(type="line", x0=-0.5, x1=len(location_compliance)-0.5, y0=85, y1=85,
+    fig_compliance.add_shape(type="line", x0=-0.5, x1=len(location_compliance)-0.5, y0=80, y1=80,  # Changed target to 80%
                              line=dict(color="red", width=2, dash="dash"),
-                             name="Target (85%)")
+                             name="Target (80%)")
     fig_compliance.update_layout(title="PM Compliance by Location", yaxis_title="Compliance (%)",
                                  yaxis_range=[0, 100], showlegend=False)
     st.plotly_chart(fig_compliance)
@@ -244,13 +274,15 @@ col14.metric(label="Mean Time Between Failures (MTBF)", value="N/A",
 
 # Open Maintenance KPIs (Expandable)
 with st.expander("🛠 Open Maintenance KPIs", expanded=True):
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)  # Added a fourth column for the new metric
     col1.metric(label="Open Unplanned WOs", value=len(filtered_df[(filtered_df['WorkStatus'] == 'Open') & (filtered_df['WorkType'].str.contains('Unplanned', case=False, na=False))]),
                 help="Number of WOs with WorkStatus='Open' and WorkType containing 'Unplanned'.")
     col2.metric(label="Open PMs", value=len(filtered_df[(filtered_df['WorkStatus'] == 'Open') & (filtered_df['WorkType'].isin(["Planned Maint."]))]),
                 help="Number of WOs with WorkStatus='Open' and WorkType in ['Planned Maint.'].")
     col3.metric(label="Avg Aging PMs (Days)", value=round(metrics["avg_pm_aging"], 2),
                 help="(Current Date - OrderDate).mean() in days for open WOs with WorkType='Planned Maint'.")
+    col4.metric(label="Avg PM Backlog Aging (Days)", value=round(metrics["avg_pm_backlog_aging"], 2),
+                help="(ActualEndDateTime - RequiredByDate).mean() in days for Planned Maint. WOs completed after RequiredByDate.")
 
 # Pending Work Order Statuses (Expandable)
 with st.expander("📋 Pending Work Order Statuses"):
@@ -350,10 +382,11 @@ with st.expander("🌐 Metrics by Location"):
     location_metrics = filtered_df.groupby('ParentLocation').apply(calculate_work_order_metrics).reset_index()
     location_metrics_df = pd.DataFrame(location_metrics[0].tolist())
     location_metrics_df['ParentLocation'] = location_metrics['ParentLocation']
-    location_metrics_df = location_metrics_df[['ParentLocation', 'open_wo', 'avg_aging', 'mttr_hrs']]
+    location_metrics_df = location_metrics_df[['ParentLocation', 'open_wo', 'avg_aging', 'mttr_hrs', 'avg_pm_backlog_aging']]
     st.dataframe(location_metrics_df.style.format({
         'avg_aging': '{:.2f}',
-        'mttr_hrs': '{:.2f}'
+        'mttr_hrs': '{:.2f}',
+        'avg_pm_backlog_aging': '{:.2f}'
     }))
 
 # Data Table and Downloadable Report
