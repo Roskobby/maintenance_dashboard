@@ -169,7 +169,7 @@ def calculate_work_order_metrics(df):
     
     # 7. Reliability Metrics
     repair_df = df[(df["WorkType"].isin(["Unplanned Corrective Maint.", "Breakdown", "Planned Corrective Maint."])) & 
-                  (df["WorkStatus"].isin(["Closed", "Completed", "Closed - Was Backlog"])].copy())
+                  (df["WorkStatus"].isin(["Closed", "Completed", "Closed - Was Backlog"]))].copy()
     repair_times = (pd.to_datetime(repair_df["ActualEndDateTime"], errors="coerce") - 
                    pd.to_datetime(repair_df["ActualStartDateTime"], errors="coerce")).dt.total_seconds() / 3600
     mttr_hrs = repair_times.mean() if not repair_times.empty else 0
