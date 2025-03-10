@@ -30,7 +30,7 @@ df = load_data()
 
 # Current date for aging calculations (dynamic with simplified approach)
 current_date = pd.to_datetime(datetime.now().date())
-st.write(f"Current date set to: {current_date}")  # Debug output to confirm
+st.write(f"Current date set to: {current_date}")  # Keeping this as it’s part of the main UI
 
 # Sidebar Theming
 with st.sidebar:
@@ -144,17 +144,11 @@ def calculate_work_order_metrics(df):
     pm_wo["ActualEndDateTime"] = pd.to_datetime(pm_wo["ActualEndDateTime"], errors="coerce")
     pm_wo["RequiredByDate"] = pd.to_datetime(pm_wo["RequiredByDate"], errors="coerce")
     
-    st.write("Debug - PM WO Count:", len(pm_wo))  # Debug output
-    st.write("Debug - PM WO with RequiredByDate:", len(pm_wo[pm_wo["RequiredByDate"].notna()]))  # Debug output
-    
     pm_completed_on_time = len(pm_wo[(pm_wo["ActualEndDateTime"] <= pm_wo["RequiredByDate"]) & 
                                     pm_wo["WorkStatus"].isin(["Completed", "Closed", "Closed - Was Backlog"]) & 
                                     pm_wo["ActualEndDateTime"].notna() & pm_wo["RequiredByDate"].notna()])
     total_pm_scheduled = len(pm_wo[pm_wo["RequiredByDate"].notna()])
     pm_compliance = (pm_completed_on_time / total_pm_scheduled * 100) if total_pm_scheduled > 0 else 0
-    
-    st.write("Debug - PM Completed On Time:", pm_completed_on_time)  # Debug output
-    st.write("Debug - Total PM Scheduled:", total_pm_scheduled)  # Debug output
     
     # Overall Compliance
     all_scheduled = df.copy()
@@ -245,12 +239,16 @@ if not filtered_df.empty:
     st.subheader("📈 PM Compliance Trend by Location")
     location_compliance = filtered_df.groupby('ParentLocation').apply(lambda x: calculate_work_order_metrics(x)['pm_compliance']).reset_index()
     location_compliance.columns = ['ParentLocation', 'PM Compliance']
+    
+    # Ensure PM Compliance values are numeric and handle any NaN
+    location_compliance['PM Compliance'] = pd.to_numeric(location_compliance['PM Compliance'], errors='coerce').fillna(0)
+    
     fig_compliance = go.Figure()
     fig_compliance.add_trace(go.Bar(
         x=location_compliance['ParentLocation'], y=location_compliance['PM Compliance'],
         marker_color='#32659C'
     ))
-    fig_compliance.add_shape(type="line", x0=-0.5, x1=len(location_compliance)-0.5, y0=80, y1=80,  # Changed target to 80%
+    fig_compliance.add_shape(type="line", x0=-0.5, x1=len(location_compliance)-0.5, y0=80, y1=80,
                              line=dict(color="red", width=2, dash="dash"),
                              name="Target (80%)")
     fig_compliance.update_layout(title="PM Compliance by Location", yaxis_title="Compliance (%)",
