@@ -106,7 +106,7 @@ def calculate_work_order_metrics(df):
     aging_days = (current_date - pd.to_datetime(open_wo_df["OrderDate"])).dt.days
     avg_aging = aging_days.mean() if not aging_days.empty else 0
     
-    pm_open_wo_df = open_wo_df[open_wo_df["WorkType"].isin(["Planned Maint."])]
+    pm_open_wo_df = open_wo_df[open_wo_df["WorkType"].isin(["Planned Maint.", "Planned Corrective Maint.", "Planned Improvement", "Inspection", "Projects"])]
     pm_aging_days = (current_date - pd.to_datetime(pm_open_wo_df["OrderDate"])).dt.days
     avg_pm_aging = pm_aging_days.mean() if not pm_aging_days.empty else 0
     
@@ -250,7 +250,7 @@ with st.expander("🛠 Open Maintenance KPIs", expanded=True):
     col2.metric(label="Open PMs", value=len(filtered_df[(filtered_df['WorkStatus'] == 'Open') & (filtered_df['WorkType'].isin(["Planned Maint."]))]),
                 help="Number of WOs with WorkStatus='Open' and WorkType in ['Planned Maint.'].")
     col3.metric(label="Avg Aging PMs (Days)", value=round(metrics["avg_pm_aging"], 2),
-                help="(Current Date - OrderDate).mean() in days for open WOs with WorkType in ['Planned Maint.'].")
+                help="(Current Date - OrderDate).mean() in days for open WOs with WorkType='Planned Maint'.")
 
 # Pending Work Order Statuses (Expandable)
 with st.expander("📋 Pending Work Order Statuses"):
