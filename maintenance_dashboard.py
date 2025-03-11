@@ -207,32 +207,32 @@ st.subheader("📊 Key Metrics")
 
 col1, col2, col3 = st.columns(3)
 col1.metric(label="Total Work Orders", value=len(filtered_df),
-            help="Total number of work orders in the filtered dataset.")
+            help="Total number of work orders in the filtered dataset after applying all selected filters.")
 col2.metric(label="Average Duration (hrs)", value=round(filtered_df['Duration'].mean(), 2) if not filtered_df['Duration'].isna().all() else "N/A",
-            help="Average of Duration column (hrs) for all work orders.")
+            help="Average of the 'Duration' column (in hours) calculated as (ActualEndDateTime - ActualStartDateTime) / 3600 for all work orders with valid duration data.")
 col3.metric(label="Open Work Orders", value=metrics["open_wo"],
-            help="Number of WOs with WorkStatus excluding 'Closed', 'Closed - Was Backlog', or 'Completed'.")
+            help="Number of work orders with WorkStatus excluding 'Closed', 'Completed', or 'Closed - Was Backlog'.")
 
 col4, col5, col6 = st.columns(3)
 col4.metric(label="Completed Work Orders", value=metrics["completed_wo"],
-            help="Number of WOs with WorkStatus equal to 'Completed'.")
+            help="Number of work orders with WorkStatus equal to 'Completed'.")
 col5.metric(label="Closed Work Orders", value=metrics["closed_wo"],
-            help="Number of WOs with WorkStatus equal to 'Closed' or 'Closed - Was Backlog'.")
+            help="Number of work orders with WorkStatus equal to 'Closed' or 'Closed - Was Backlog'.")
 col6.metric(label="In Progress Work Orders", value=metrics["in_progress_wo"],
-            help="Number of WOs with WorkStatus equal to 'In Progress'.")
+            help="Number of work orders with WorkStatus equal to 'In Progress'.")
 
 col7, col8 = st.columns(2)
 col7.metric(label="Avg Work Order Aging (Days)", value=round(metrics["avg_aging"], 2),
-            help="(Current Date - OrderDate).mean() in days for WOs where WorkStatus is not 'Closed', 'Closed - Was Backlog', or 'Completed'.")
+            help="(Current Date - OrderDate).mean() in days for work orders where WorkStatus is not 'Closed', 'Closed - Was Backlog', or 'Completed'.")
 col8.metric(label="Avg Cycle Time (Days)", value=round(metrics["avg_cycle_time"], 2),
-            help="((ActualEndDateTime - OrderDate).mean()) / 86400 in days for WOs with WorkStatus equal to 'Completed'.")
+            help="((ActualEndDateTime - OrderDate).mean() / 86400) in days for work orders with WorkStatus equal to 'Completed'.")
 
 # Backlog Metrics
 col9, col10 = st.columns(2)
 col9.metric(label="Backlog Count", value=metrics["backlog_count"],
-            help="Same as Open Work Orders count.")
+            help="Same as the number of Open Work Orders, representing work orders not yet closed or completed.")
 col10.metric(label="Backlog WOs > 2 Weeks", value=metrics["backlog_weeks_flag"],
-            help="(Current Date - OrderDate) / 7 in weeks for open WOs, with a count of WOs exceeding 2 weeks.")
+            help="(Current Date - OrderDate) / 7 in weeks for open work orders, with a count of work orders exceeding 2 weeks.")
 
 # Compliance Gauges (Using Circular Gauges)
 st.subheader("📏 Compliance Metrics")
@@ -261,6 +261,7 @@ with col11:
     ))
     fig_pm_gauge.update_layout(height=250, margin=dict(l=20, r=20, t=50, b=20))
     st.plotly_chart(fig_pm_gauge, use_container_width=True)
+    st.caption("PM Compliance: (Count of PM work orders completed on or before RequiredByDate / Total PM work orders with a RequiredByDate) * 100, where PM includes 'Planned Maint.', 'Planned Corrective Maint.', 'Planned Improvement', 'Inspection', and 'Projects'.")
 
 # Overall Compliance Gauge
 with col12:
@@ -285,6 +286,7 @@ with col12:
     ))
     fig_overall_gauge.update_layout(height=250, margin=dict(l=20, r=20, t=50, b=20))
     st.plotly_chart(fig_overall_gauge, use_container_width=True)
+    st.caption("Overall Compliance: (Count of all work orders completed on or before RequiredByDate / Total work orders with a RequiredByDate) * 100.")
 
 # Maintenance Type Distribution (Pie Chart and Donut Chart Side by Side)
 st.subheader("📊 Maintenance Type Distribution")
@@ -330,7 +332,7 @@ with col2:
 st.subheader("🔧 Reliability Metrics")
 col13, col14 = st.columns(2)
 col13.metric(label="Mean Time to Repair (MTTR) (hrs)", value=round(metrics["mttr_hrs"], 2),
-             help="MTTR = Sum of Repair Time ÷ Number of Repairs, where Repair Time = ActualEndDateTime - ActualStartDateTime (in hours) for WOs with WorkType in ['Planned Corrective Maint.', 'Unplanned Corrective Maint.', 'Breakdown'] and WorkStatus in ['Closed', 'Completed', 'Closed - Was Backlog']. Note: Full dataset (500 WOs) estimates MTTR at ~4.32 hrs.")
+             help="MTTR = Sum of Repair Time ÷ Number of Repairs, where Repair Time = (ActualEndDateTime - ActualStartDateTime) / 3600 (in hours) for work orders with WorkType in ['Planned Corrective Maint.', 'Unplanned Corrective Maint.', 'Breakdown'] and WorkStatus in ['Closed', 'Completed', 'Closed - Was Backlog'].")
 col14.metric(label="Mean Time Between Failures (MTBF)", value="N/A",
              help="Not available due to missing operational hours or failure frequency data; set to 'N/A'.")
 
@@ -338,39 +340,39 @@ col14.metric(label="Mean Time Between Failures (MTBF)", value="N/A",
 with st.expander("🛠 Open Maintenance KPIs", expanded=True):
     col1, col2, col3, col4 = st.columns(4)
     col1.metric(label="Open Unplanned WOs", value=len(filtered_df[(filtered_df['WorkStatus'] == 'Open') & (filtered_df['WorkType'].str.contains('Unplanned', case=False, na=False))]),
-                help="Number of WOs with WorkStatus='Open' and WorkType containing 'Unplanned'.")
+                help="Number of work orders with WorkStatus='Open' and WorkType containing 'Unplanned'.")
     col2.metric(label="Open PMs", value=len(filtered_df[(filtered_df['WorkStatus'] == 'Open') & (filtered_df['WorkType'].isin(["Planned Maint."]))]),
-                help="Number of WOs with WorkStatus='Open' and WorkType in ['Planned Maint.'].")
+                help="Number of work orders with WorkStatus='Open' and WorkType in ['Planned Maint.'].")
     col3.metric(label="Avg Aging PMs (Days)", value=round(metrics["avg_pm_aging"], 2),
-                help="(Current Date - OrderDate).mean() in days for open WOs with WorkType='Planned Maint'.")
+                help="(Current Date - OrderDate).mean() in days for open work orders with WorkType='Planned Maint'.")
     col4.metric(label="Avg PM Backlog Aging (Days)", value=round(metrics["avg_pm_backlog_aging"], 2),
-                help="(ActualEndDateTime - RequiredByDate).mean() in days for Planned Maint. WOs completed after RequiredByDate.")
+                help="(ActualEndDateTime - RequiredByDate).mean() in days for Planned Maint. work orders completed after RequiredByDate.")
 
 # Pending Work Order Statuses (Expandable)
 with st.expander("📋 Pending Work Order Statuses"):
     col1, col2, col3 = st.columns(3)
     col1.metric(label="Postponed WOs", value=metrics["pending_counts"].get("Postponed", "N/A"),
-                help="Number of WOs with WorkStatus='Postponed'.")
+                help="Number of work orders with WorkStatus='Postponed'.")
     col2.metric(label="Waiting for Parts", value=metrics["pending_counts"].get("Waiting for Parts", "N/A"),
-                help="Number of WOs with WorkStatus='Waiting for Parts'.")
+                help="Number of work orders with WorkStatus='Waiting for Parts'.")
     col3.metric(label="Waiting for Approval", value=metrics["pending_counts"].get("Waiting for Approval", "N/A"),
-                help="Number of WOs with WorkStatus='Waiting for Approval'.")
+                help="Number of work orders with WorkStatus='Waiting for Approval'.")
 
 # Maintenance Performance KPIs (Expandable)
 with st.expander("📈 Maintenance Performance KPIs"):
     col1, col2, col3 = st.columns(3)
     col1.metric(label="Planned Maintenance (%)", value=f"{round(metrics['planned_pct'], 1)}%",
-                help="(Count of completed WOs with WorkType starting with 'Planned' (e.g., Planned Maint., Planned Corrective Maint., Planned Improvement, Predictive Maint.) plus 'Projects' and 'Inspection' / Total completed WOs) * 100.")
+                help="(Count of completed work orders with WorkType starting with 'Planned' (e.g., Planned Maint., Planned Corrective Maint., Planned Improvement, Predictive Maint.) plus 'Projects' and 'Inspection' / Total completed work orders) * 100.")
     col2.metric(label="Corrective Maintenance (%)", value=f"{round(metrics['corrective_pct'], 1)}%",
-                help="(Count of completed WOs with WorkType in ['Unplanned Corrective Maint.', 'Breakdown'] / Total completed WOs) * 100.")
+                help="(Count of completed work orders with WorkType in ['Unplanned Corrective Maint.', 'Breakdown'] / Total completed work orders) * 100.")
     col3.metric(label="Emergency Maintenance (%)", value=f"{round(metrics['emergency_pct_old'], 1)}%",
-                help="(Count of completed WOs with WorkType in ['Unplanned Corrective Maint.', 'Breakdown'] / Total completed WOs) * 100 (assumed 0% without a downtime flag).")
+                help="(Count of completed work orders with WorkType in ['Unplanned Corrective Maint.', 'Breakdown'] / Total completed work orders) * 100 (assumed 0% without a downtime flag).")
 
 # Project YTD
 st.subheader("📅 Project Metrics")
 col15 = st.columns(1)[0]
 col15.metric(label="Projects YTD (2025)", value=metrics["project_ytd"],
-             help="Count of WOs with WorkType='Projects' and OrderDate in 2025.")
+             help="Count of work orders with WorkType='Projects' and OrderDate in 2025.")
 
 # Work Orders by Location Chart
 if not filtered_df.empty and 'ParentLocation' in filtered_df:
@@ -480,7 +482,8 @@ with st.expander("📄 Data Preview"):
         label="📥 Download Report as CSV",
         data=filtered_df.to_csv(index=False),
         file_name="maintenance_report.csv",
-        mime="text/csv"
+        mime="text/csv",
+        help="Downloads the filtered dataset as a CSV file for further analysis."
     )
 
 # Sidebar Notes
