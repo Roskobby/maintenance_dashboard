@@ -129,8 +129,8 @@ def calculate_work_order_metrics(df):
     completed_df = df[df["WorkStatus"].isin(["Completed", "Closed", "Closed - Was Backlog"])].copy()
 
     # Planned vs. Corrective Metrics
-    planned_types = ["Planned Maint.", "Inspection", "Projects", "Planned Improvement"]
-    corrective_types = ["Unplanned Corrective Maint.", "Breakdown", "Planned Corrective Maint."]
+    planned_types = [wt for wt in df["WorkType"].unique() if wt.startswith("Planned")] + ["Projects", "Inspection"]
+    corrective_types = ["Unplanned Corrective Maint.", "Breakdown"]
     planned_wo = len(completed_df[completed_df["WorkType"].isin(planned_types)])
     corrective_wo = len(completed_df[completed_df["WorkType"].isin(corrective_types)])
     total_completed = len(completed_df)
@@ -288,7 +288,7 @@ with col12:
 
 # Maintenance Type Distribution (Pie Chart and Donut Chart Side by Side)
 st.subheader("📊 Maintenance Type Distribution")
-col1, col2 = st.columns(2)
+col1, col2 = st.columns([1, 1])
 
 with col1:
     fig_pie = px.pie(
@@ -296,6 +296,10 @@ with col1:
         values=[metrics["planned_pct"], metrics["corrective_pct"]],
         title="Planned vs Corrective Maintenance (%)",
         color_discrete_sequence=['#32659C', '#FF6F61']
+    )
+    fig_pie.update_layout(
+        height=400,
+        margin=dict(t=50, b=20, l=20, r=20)
     )
     st.plotly_chart(fig_pie, use_container_width=True)
 
@@ -315,6 +319,7 @@ with col2:
         fig_donut.update_layout(
             title_font_size=14,
             showlegend=True,
+            height=400,
             margin=dict(t=50, b=20, l=20, r=20)
         )
         st.plotly_chart(fig_donut, use_container_width=True)
@@ -355,9 +360,9 @@ with st.expander("📋 Pending Work Order Statuses"):
 with st.expander("📈 Maintenance Performance KPIs"):
     col1, col2, col3 = st.columns(3)
     col1.metric(label="Planned Maintenance (%)", value=f"{round(metrics['planned_pct'], 1)}%",
-                help="(Count of completed WOs with WorkType in ['Planned Maint.', 'Inspection', 'Projects', 'Planned Improvement'] / Total completed WOs) * 100.")
+                help="(Count of completed WOs with WorkType starting with 'Planned' (e.g., Planned Maint., Planned Corrective Maint., Planned Improvement, Predictive Maint.) plus 'Projects' and 'Inspection' / Total completed WOs) * 100.")
     col2.metric(label="Corrective Maintenance (%)", value=f"{round(metrics['corrective_pct'], 1)}%",
-                help="(Count of completed WOs with WorkType in ['Unplanned Corrective Maint.', 'Breakdown', 'Planned Corrective Maint.'] / Total completed WOs) * 100.")
+                help="(Count of completed WOs with WorkType in ['Unplanned Corrective Maint.', 'Breakdown'] / Total completed WOs) * 100.")
     col3.metric(label="Emergency Maintenance (%)", value=f"{round(metrics['emergency_pct_old'], 1)}%",
                 help="(Count of completed WOs with WorkType in ['Unplanned Corrective Maint.', 'Breakdown'] / Total completed WOs) * 100 (assumed 0% without a downtime flag).")
 
