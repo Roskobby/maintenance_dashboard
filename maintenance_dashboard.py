@@ -45,7 +45,7 @@ with st.sidebar:
         </style>
     ''', unsafe_allow_html=True)
 
-    st.title(":wrench: Maintenance Dashboard")
+    st.title(":wrench: Maintenance Work Order Dashboard - Debug Removed")
     st.markdown("""
         This dashboard provides an analysis of maintenance work orders, including planned and unplanned maintenance,
         work requests, downtime tracking, and performance metrics.
