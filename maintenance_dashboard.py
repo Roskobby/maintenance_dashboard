@@ -30,7 +30,7 @@ df = load_data()
 
 # Current date for aging calculations (dynamic with simplified approach)
 current_date = pd.to_datetime(datetime.now().date())
-st.write(f"Current date set to: {current_date}")  # Keeping this as it’s part of the main UI
+st.write(f"Current date set to: {current_date}")
 
 # Sidebar Theming
 with st.sidebar:
@@ -45,7 +45,7 @@ with st.sidebar:
         </style>
     ''', unsafe_allow_html=True)
 
-    st.title(":wrench: Maintenance Work Order Dashboard - Debug Removed")
+    st.title(":wrench: Maintenance Dashboard")
     st.markdown("""
         This dashboard provides an analysis of maintenance work orders, including planned and unplanned maintenance,
         work requests, downtime tracking, and performance metrics.
@@ -61,7 +61,7 @@ with st.sidebar:
     current_month_num = current_date.month
     month_names = ['January', 'February', 'March', 'April', 'May', 'June', 
                    'July', 'August', 'September', 'October', 'November', 'December']
-    default_months = month_names[:current_month_num]  # e.g., if current month is March, select January to March
+    default_months = month_names[:current_month_num]
     default_years = [current_year]
     
     selected_months = st.multiselect("Select Month", month_options, default=default_months)
@@ -123,24 +123,31 @@ def calculate_work_order_metrics(df):
     # 4. Maintenance Backlog Metrics
     backlog_count = open_wo
     backlog_weeks_df = (current_date - pd.to_datetime(open_wo_df["OrderDate"], errors="coerce")).dt.days / 7
-    backlog_weeks_flag = len(backlog_weeks_df[backlog_weeks_df > 2])  # Flag WOs exceeding 2 weeks
+    backlog_weeks_flag = len(backlog_weeks_df[backlog_weeks_df > 2])
     
     # 5. Maintenance Type Metrics
     completed_df = df[df["WorkStatus"].isin(["Completed", "Closed", "Closed - Was Backlog"])].copy()
-    planned_types = ["Planned Maint.", "Planned Corrective Maint.", "Planned Improvement", "Inspection", "Projects"]
-    corrective_types = ["Unplanned Corrective Maint.", "Breakdown"]
+
+    # Planned vs. Corrective Metrics
+    planned_types = ["Planned Maint.", "Inspection", "Projects", "Planned Improvement"]
+    corrective_types = ["Unplanned Corrective Maint.", "Breakdown", "Planned Corrective Maint."]
     planned_wo = len(completed_df[completed_df["WorkType"].isin(planned_types)])
     corrective_wo = len(completed_df[completed_df["WorkType"].isin(corrective_types)])
     total_completed = len(completed_df)
     planned_pct = (planned_wo / total_completed * 100) if total_completed > 0 else 0
     corrective_pct = (corrective_wo / total_completed * 100) if total_completed > 0 else 0
-    
+
+    # All WorkType Metrics
+    work_type_counts = completed_df["WorkType"].value_counts()
+    work_type_percentages = {work_type: (count / total_completed * 100) if total_completed > 0 else 0 
+                             for work_type, count in work_type_counts.items()}
+
     project_ytd = len(completed_df[(completed_df["WorkType"] == "Projects") & (completed_df["Year"] == current_date.year)])
-    emergency_wo = len(completed_df[completed_df["WorkType"].isin(corrective_types)])  # Assuming no downtime flag
-    emergency_pct = (emergency_wo / total_completed * 100) if total_completed > 0 else 0
+    emergency_wo_old = len(completed_df[completed_df["WorkType"].isin(["Unplanned Corrective Maint.", "Breakdown"])])
+    emergency_pct_old = (emergency_wo_old / total_completed * 100) if total_completed > 0 else 0
     
     # 6. Maintenance Schedule Compliance (using calculated RequiredByDate)
-    pm_wo = df[df["WorkType"].isin(planned_types)].copy()
+    pm_wo = df[df["WorkType"].isin(["Planned Maint.", "Planned Corrective Maint.", "Planned Improvement", "Inspection", "Projects"])].copy()
     pm_wo["ActualEndDateTime"] = pd.to_datetime(pm_wo["ActualEndDateTime"], errors="coerce")
     pm_wo["RequiredByDate"] = pd.to_datetime(pm_wo["RequiredByDate"], errors="coerce")
     
@@ -181,10 +188,13 @@ def calculate_work_order_metrics(df):
         "pending_counts": pending_counts,
         "avg_aging": avg_aging, "avg_pm_aging": avg_pm_aging, "avg_cycle_time": avg_cycle_time,
         "backlog_count": backlog_count, "backlog_weeks_flag": backlog_weeks_flag,
-        "planned_pct": planned_pct, "corrective_pct": corrective_pct, "project_ytd": project_ytd, "emergency_pct": emergency_pct,
+        "planned_pct": planned_pct,
+        "corrective_pct": corrective_pct,
+        "work_type_percentages": work_type_percentages,
+        "project_ytd": project_ytd, "emergency_pct_old": emergency_pct_old,
         "pm_compliance": pm_compliance, "overall_compliance": overall_compliance,
         "mttr_hrs": mttr_hrs,
-        "avg_pm_backlog_aging": avg_pm_backlog_aging  # New metric for PM backlog aging
+        "avg_pm_backlog_aging": avg_pm_backlog_aging
     }
 
 metrics = calculate_work_order_metrics(filtered_df)
@@ -236,15 +246,15 @@ with col11:
         title={"text": "PM Compliance (%)", "font": {"size": 16}},
         gauge={
             "axis": {"range": [0, 100], "tickwidth": 1, "tickcolor": "black"},
-            "bar": {"color": "#32659C"},  # Color of the needle/bar
+            "bar": {"color": "#32659C"},
             "steps": [
-                {"range": [0, 80], "color": "lightgray"},  # Below target
-                {"range": [80, 100], "color": "lightgreen"}  # Above target
+                {"range": [0, 80], "color": "lightgray"},
+                {"range": [80, 100], "color": "lightgreen"}
             ],
             "threshold": {
                 "line": {"color": "red", "width": 4},
                 "thickness": 0.75,
-                "value": 80  # Target at 80%
+                "value": 80
             }
         },
         number={"suffix": "%", "font": {"size": 20}}
@@ -276,33 +286,40 @@ with col12:
     fig_overall_gauge.update_layout(height=250, margin=dict(l=20, r=20, t=50, b=20))
     st.plotly_chart(fig_overall_gauge, use_container_width=True)
 
-# Compliance Trend by Location (Inspired by GPMS)
-if not filtered_df.empty:
-    st.subheader("📈 PM Compliance Trend by Location")
-    location_compliance = filtered_df.groupby('ParentLocation').apply(lambda x: calculate_work_order_metrics(x)['pm_compliance']).reset_index()
-    location_compliance.columns = ['ParentLocation', 'PM Compliance']
-    
-    # Ensure PM Compliance values are numeric and handle any NaN
-    location_compliance['PM Compliance'] = pd.to_numeric(location_compliance['PM Compliance'], errors='coerce').fillna(0)
-    
-    fig_compliance = go.Figure()
-    fig_compliance.add_trace(go.Bar(
-        x=location_compliance['ParentLocation'], y=location_compliance['PM Compliance'],
-        marker_color='#32659C'
-    ))
-    fig_compliance.add_shape(type="line", x0=-0.5, x1=len(location_compliance)-0.5, y0=80, y1=80,
-                             line=dict(color="red", width=2, dash="dash"),
-                             name="Target (80%)")
-    fig_compliance.update_layout(title="PM Compliance by Location", yaxis_title="Compliance (%)",
-                                 yaxis_range=[0, 100], showlegend=False)
-    st.plotly_chart(fig_compliance)
-
-# Maintenance Type Distribution
+# Maintenance Type Distribution (Pie Chart and Donut Chart Side by Side)
 st.subheader("📊 Maintenance Type Distribution")
-fig_pie = px.pie(names=["Planned", "Corrective"], values=[metrics["planned_pct"], metrics["corrective_pct"]],
-                 title="Planned vs Corrective Maintenance (%)",
-                 color_discrete_sequence=['#32659C', '#FF6F61'])
-st.plotly_chart(fig_pie)
+col1, col2 = st.columns(2)
+
+with col1:
+    fig_pie = px.pie(
+        names=["Planned", "Corrective"],
+        values=[metrics["planned_pct"], metrics["corrective_pct"]],
+        title="Planned vs Corrective Maintenance (%)",
+        color_discrete_sequence=['#32659C', '#FF6F61']
+    )
+    st.plotly_chart(fig_pie, use_container_width=True)
+
+with col2:
+    if metrics["work_type_percentages"]:
+        work_types = list(metrics["work_type_percentages"].keys())
+        percentages = list(metrics["work_type_percentages"].values())
+        
+        fig_donut = px.pie(
+            names=work_types,
+            values=percentages,
+            title="All Work Types (%)",
+            hole=0.4,
+            color_discrete_sequence=px.colors.qualitative.Set3
+        )
+        fig_donut.update_traces(textinfo='percent+label', textposition='outside')
+        fig_donut.update_layout(
+            title_font_size=14,
+            showlegend=True,
+            margin=dict(t=50, b=20, l=20, r=20)
+        )
+        st.plotly_chart(fig_donut, use_container_width=True)
+    else:
+        st.write("No completed work orders available to display all Work Type distribution.")
 
 # Reliability Metrics
 st.subheader("🔧 Reliability Metrics")
@@ -314,7 +331,7 @@ col14.metric(label="Mean Time Between Failures (MTBF)", value="N/A",
 
 # Open Maintenance KPIs (Expandable)
 with st.expander("🛠 Open Maintenance KPIs", expanded=True):
-    col1, col2, col3, col4 = st.columns(4)  # Added a fourth column for the new metric
+    col1, col2, col3, col4 = st.columns(4)
     col1.metric(label="Open Unplanned WOs", value=len(filtered_df[(filtered_df['WorkStatus'] == 'Open') & (filtered_df['WorkType'].str.contains('Unplanned', case=False, na=False))]),
                 help="Number of WOs with WorkStatus='Open' and WorkType containing 'Unplanned'.")
     col2.metric(label="Open PMs", value=len(filtered_df[(filtered_df['WorkStatus'] == 'Open') & (filtered_df['WorkType'].isin(["Planned Maint."]))]),
@@ -338,10 +355,10 @@ with st.expander("📋 Pending Work Order Statuses"):
 with st.expander("📈 Maintenance Performance KPIs"):
     col1, col2, col3 = st.columns(3)
     col1.metric(label="Planned Maintenance (%)", value=f"{round(metrics['planned_pct'], 1)}%",
-                help="(Count of completed WOs with WorkType in ['Planned Maint.', 'Planned Corrective Maint.', 'Planned Improvement', 'Inspection', 'Projects'] / Total completed WOs) * 100.")
+                help="(Count of completed WOs with WorkType in ['Planned Maint.', 'Inspection', 'Projects', 'Planned Improvement'] / Total completed WOs) * 100.")
     col2.metric(label="Corrective Maintenance (%)", value=f"{round(metrics['corrective_pct'], 1)}%",
-                help="(Count of completed WOs with WorkType in ['Unplanned Corrective Maint.', 'Breakdown'] / Total completed WOs) * 100.")
-    col3.metric(label="Emergency Maintenance (%)", value=f"{round(metrics['emergency_pct'], 1)}%",
+                help="(Count of completed WOs with WorkType in ['Unplanned Corrective Maint.', 'Breakdown', 'Planned Corrective Maint.'] / Total completed WOs) * 100.")
+    col3.metric(label="Emergency Maintenance (%)", value=f"{round(metrics['emergency_pct_old'], 1)}%",
                 help="(Count of completed WOs with WorkType in ['Unplanned Corrective Maint.', 'Breakdown'] / Total completed WOs) * 100 (assumed 0% without a downtime flag).")
 
 # Project YTD
@@ -407,6 +424,27 @@ fig_pareto_worktype.update_layout(
     showlegend=True
 )
 st.plotly_chart(fig_pareto_worktype)
+
+# PM Compliance Trend by Location
+if not filtered_df.empty and 'ParentLocation' in filtered_df:
+    st.subheader("📈 PM Compliance Trend by Location")
+    location_compliance = filtered_df.groupby('ParentLocation').apply(lambda x: calculate_work_order_metrics(x)['pm_compliance']).reset_index()
+    location_compliance.columns = ['ParentLocation', 'PM Compliance']
+    
+    # Ensure PM Compliance values are numeric and handle any NaN
+    location_compliance['PM Compliance'] = pd.to_numeric(location_compliance['PM Compliance'], errors='coerce').fillna(0)
+    
+    fig_compliance = go.Figure()
+    fig_compliance.add_trace(go.Bar(
+        x=location_compliance['ParentLocation'], y=location_compliance['PM Compliance'],
+        marker_color='#32659C'
+    ))
+    fig_compliance.add_shape(type="line", x0=-0.5, x1=len(location_compliance)-0.5, y0=80, y1=80,
+                             line=dict(color="red", width=2, dash="dash"),
+                             name="Target (80%)")
+    fig_compliance.update_layout(title="PM Compliance by Location", yaxis_title="Compliance (%)",
+                                 yaxis_range=[0, 100], showlegend=False)
+    st.plotly_chart(fig_compliance)
 
 # Work Orders by Priority Level Chart
 if not filtered_df.empty and 'WorkPriority' in filtered_df:
