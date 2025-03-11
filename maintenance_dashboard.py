@@ -224,15 +224,57 @@ col9.metric(label="Backlog Count", value=metrics["backlog_count"],
 col10.metric(label="Backlog WOs > 2 Weeks", value=metrics["backlog_weeks_flag"],
             help="(Current Date - OrderDate) / 7 in weeks for open WOs, with a count of WOs exceeding 2 weeks.")
 
-# Compliance Gauges (Mimicking GPMS Style)
+# Compliance Gauges (Using Circular Gauges)
 st.subheader("📏 Compliance Metrics")
 col11, col12 = st.columns(2)
-col11.markdown(f"**PM Compliance: {round(metrics['pm_compliance'], 2)}%**",
-               help="(Count of planned WOs with ActualEndDateTime ≤ RequiredByDate and WorkStatus in ['Completed', 'Closed', 'Closed - Was Backlog'] / Count of planned WOs with RequiredByDate) * 100")
-col11.progress(metrics["pm_compliance"] / 100 if metrics["pm_compliance"] <= 100 else 1.0)  # Cap at 100%
-col12.markdown(f"**Overall Compliance: {round(metrics['overall_compliance'], 2)}%**",
-               help="(Count of all WOs with ActualEndDateTime ≤ RequiredByDate and WorkStatus in ['Completed', 'Closed', 'Closed - Was Backlog'] / Count of all WOs with RequiredByDate) * 100")
-col12.progress(metrics["overall_compliance"] / 100 if metrics["overall_compliance"] <= 100 else 1.0)  # Cap at 100%
+
+# PM Compliance Gauge
+with col11:
+    fig_pm_gauge = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=metrics["pm_compliance"],
+        title={"text": "PM Compliance (%)", "font": {"size": 16}},
+        gauge={
+            "axis": {"range": [0, 100], "tickwidth": 1, "tickcolor": "black"},
+            "bar": {"color": "#32659C"},  # Color of the needle/bar
+            "steps": [
+                {"range": [0, 80], "color": "lightgray"},  # Below target
+                {"range": [80, 100], "color": "lightgreen"}  # Above target
+            ],
+            "threshold": {
+                "line": {"color": "red", "width": 4},
+                "thickness": 0.75,
+                "value": 80  # Target at 80%
+            }
+        },
+        number={"suffix": "%", "font": {"size": 20}}
+    ))
+    fig_pm_gauge.update_layout(height=250, margin=dict(l=20, r=20, t=50, b=20))
+    st.plotly_chart(fig_pm_gauge, use_container_width=True)
+
+# Overall Compliance Gauge
+with col12:
+    fig_overall_gauge = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=metrics["overall_compliance"],
+        title={"text": "Overall Compliance (%)", "font": {"size": 16}},
+        gauge={
+            "axis": {"range": [0, 100], "tickwidth": 1, "tickcolor": "black"},
+            "bar": {"color": "#32659C"},
+            "steps": [
+                {"range": [0, 80], "color": "lightgray"},
+                {"range": [80, 100], "color": "lightgreen"}
+            ],
+            "threshold": {
+                "line": {"color": "red", "width": 4},
+                "thickness": 0.75,
+                "value": 80
+            }
+        },
+        number={"suffix": "%", "font": {"size": 20}}
+    ))
+    fig_overall_gauge.update_layout(height=250, margin=dict(l=20, r=20, t=50, b=20))
+    st.plotly_chart(fig_overall_gauge, use_container_width=True)
 
 # Compliance Trend by Location (Inspired by GPMS)
 if not filtered_df.empty:
