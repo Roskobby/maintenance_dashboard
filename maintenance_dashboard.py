@@ -183,6 +183,21 @@ def calculate_work_order_metrics(df):
                              pd.to_datetime(pm_backlog_df["RequiredByDate"], errors="coerce")).dt.days
     avg_pm_backlog_aging = pm_backlog_aging_days.mean() if not pm_backlog_aging_days.empty else 0
     
+    # 9. Work Orders Released by Week
+    open_wo_df["OrderDate"] = pd.to_datetime(open_wo_df["OrderDate"], errors="coerce")
+    current_week_start = current_date - pd.to_timedelta((current_date.weekday() + 1) % 7, unit='D')  # Monday of current week
+    current_week_end = current_week_start + pd.to_timedelta(6, unit='D')  # Sunday of current week
+    previous_week_start = current_week_start - pd.to_timedelta(7, unit='D')
+    previous_week_end = current_week_start - pd.to_timedelta(1, unit='D')
+    
+    wo_current_week = len(open_wo_df[(open_wo_df["OrderDate"] >= current_week_start) & (open_wo_df["OrderDate"] <= current_week_end)])
+    wo_previous_week = len(open_wo_df[(open_wo_df["OrderDate"] >= previous_week_start) & (open_wo_df["OrderDate"] <= previous_week_end)])
+    
+    # 10. Work Orders Released Breakdown (e.g., by priority or status)
+    # Assuming WorkPriority has levels like 'P1 - High', 'P2 - Medium', 'P3 - Low'
+    top_priority_wo = len(open_wo_df[open_wo_df["WorkPriority"] == "P1 - High"])
+    past_due_wo = len(open_wo_df[aging_days > 7])  # Assuming past due is > 7 days for simplicity
+    
     return {
         "open_wo": open_wo, "closed_wo": closed_wo, "completed_wo": completed_wo, "in_progress_wo": in_progress_wo,
         "pending_counts": pending_counts,
@@ -194,13 +209,43 @@ def calculate_work_order_metrics(df):
         "project_ytd": project_ytd, "emergency_pct_old": emergency_pct_old,
         "pm_compliance": pm_compliance, "overall_compliance": overall_compliance,
         "mttr_hrs": mttr_hrs,
-        "avg_pm_backlog_aging": avg_pm_backlog_aging
+        "avg_pm_backlog_aging": avg_pm_backlog_aging,
+        "wo_current_week": wo_current_week,
+        "wo_previous_week": wo_previous_week,
+        "top_priority_wo": top_priority_wo,
+        "past_due_wo": past_due_wo
     }
 
 metrics = calculate_work_order_metrics(filtered_df)
 
 # Main Dashboard
 st.title("Maintenance Work Order Dashboard")
+
+# Custom CSS for Card Design
+st.markdown("""
+    <style>
+    .card {
+        background-color: #f9f9f9;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        padding: 10px;
+        margin: 10px 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .card-title {
+        font-size: 16px;
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+    .card-content {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+metrics = calculate_work_order_metrics(filtered_df)
 
 # KPI Summary Section
 st.subheader("📊 Key Metrics")
@@ -234,99 +279,133 @@ col9.metric(label="Backlog Count", value=metrics["backlog_count"],
 col10.metric(label="Backlog WOs > 2 Weeks", value=metrics["backlog_weeks_flag"],
             help="(Current Date - OrderDate) / 7 in weeks for open work orders, with a count of work orders exceeding 2 weeks.")
 
-# Compliance Gauges (Using Circular Gauges)
+# Compliance Gauges
 st.subheader("📏 Compliance Metrics")
 col11, col12 = st.columns(2)
-
-# PM Compliance Gauge
 with col11:
     fig_pm_gauge = go.Figure(go.Indicator(
         mode="gauge+number",
         value=metrics["pm_compliance"],
         title={"text": "PM Compliance (%)", "font": {"size": 16}},
-        gauge={
-            "axis": {"range": [0, 100], "tickwidth": 1, "tickcolor": "black"},
-            "bar": {"color": "#32659C"},
-            "steps": [
-                {"range": [0, 80], "color": "lightgray"},
-                {"range": [80, 100], "color": "lightgreen"}
-            ],
-            "threshold": {
-                "line": {"color": "red", "width": 4},
-                "thickness": 0.75,
-                "value": 80
-            }
-        },
+        gauge={"axis": {"range": [0, 100], "tickwidth": 1, "tickcolor": "black"},
+               "bar": {"color": "#32659C"},
+               "steps": [{"range": [0, 80], "color": "lightgray"}, {"range": [80, 100], "color": "lightgreen"}],
+               "threshold": {"line": {"color": "red", "width": 4}, "thickness": 0.75, "value": 80}},
         number={"suffix": "%", "font": {"size": 20}}
     ))
     fig_pm_gauge.update_layout(height=250, margin=dict(l=20, r=20, t=50, b=20))
     st.plotly_chart(fig_pm_gauge, use_container_width=True)
     st.caption("PM Compliance: (Count of PM work orders completed on or before RequiredByDate / Total PM work orders with a RequiredByDate) * 100, where PM includes 'Planned Maint.', 'Planned Corrective Maint.', 'Planned Improvement', 'Inspection', and 'Projects'.")
 
-# Overall Compliance Gauge
 with col12:
     fig_overall_gauge = go.Figure(go.Indicator(
         mode="gauge+number",
         value=metrics["overall_compliance"],
         title={"text": "Overall Compliance (%)", "font": {"size": 16}},
-        gauge={
-            "axis": {"range": [0, 100], "tickwidth": 1, "tickcolor": "black"},
-            "bar": {"color": "#32659C"},
-            "steps": [
-                {"range": [0, 80], "color": "lightgray"},
-                {"range": [80, 100], "color": "lightgreen"}
-            ],
-            "threshold": {
-                "line": {"color": "red", "width": 4},
-                "thickness": 0.75,
-                "value": 80
-            }
-        },
+        gauge={"axis": {"range": [0, 100], "tickwidth": 1, "tickcolor": "black"},
+               "bar": {"color": "#32659C"},
+               "steps": [{"range": [0, 80], "color": "lightgray"}, {"range": [80, 100], "color": "lightgreen"}],
+               "threshold": {"line": {"color": "red", "width": 4}, "thickness": 0.75, "value": 80}},
         number={"suffix": "%", "font": {"size": 20}}
     ))
     fig_overall_gauge.update_layout(height=250, margin=dict(l=20, r=20, t=50, b=20))
     st.plotly_chart(fig_overall_gauge, use_container_width=True)
     st.caption("Overall Compliance: (Count of all work orders completed on or before RequiredByDate / Total work orders with a RequiredByDate) * 100.")
 
-# Maintenance Type Distribution (Pie Chart and Donut Chart Side by Side)
-st.subheader("📊 Maintenance Type Distribution")
-col1, col2 = st.columns([1, 1])
+# Operations Cards
+st.subheader("🛠 Operations Cards")
+col1, col2, col3, col4 = st.columns(4)
 
+# Work Orders Released Card
 with col1:
-    fig_pie = px.pie(
-        names=["Planned", "Corrective"],
-        values=[metrics["planned_pct"], metrics["corrective_pct"]],
-        title="Planned vs Corrective Maintenance (%)",
-        color_discrete_sequence=['#32659C', '#FF6F61']
+    st.markdown('<div class="card"><div class="card-title">Work Orders Released</div><div class="card-content">', unsafe_allow_html=True)
+    fig_wo_released = px.pie(
+        names=["Top Priority", "Past Due", "Other"],
+        values=[metrics["top_priority_wo"], metrics["past_due_wo"], metrics["open_wo"] - metrics["top_priority_wo"] - metrics["past_due_wo"]],
+        hole=0.4,
+        color_discrete_sequence=["#FFA500", "#FFD700", "#90EE90"]
     )
-    fig_pie.update_layout(
-        height=400,
-        margin=dict(t=50, b=20, l=20, r=20)
-    )
-    st.plotly_chart(fig_pie, use_container_width=True)
+    fig_wo_released.update_layout(height=200, margin=dict(t=20, b=20, l=20, r=20), showlegend=False)
+    st.plotly_chart(fig_wo_released, use_container_width=True)
+    st.markdown(f"<p>3 Top Priority</p><p>2 Past Due</p><p>7 Total</p>", unsafe_allow_html=True)  # Example values from image
+    st.markdown('</div></div>', unsafe_allow_html=True)
 
+# Scheduled vs Completed This Week Card
 with col2:
-    if metrics["work_type_percentages"]:
-        work_types = list(metrics["work_type_percentages"].keys())
-        percentages = list(metrics["work_type_percentages"].values())
-        
-        fig_donut = px.pie(
-            names=work_types,
-            values=percentages,
-            title="All Work Types (%)",
-            hole=0.4,
-            color_discrete_sequence=px.colors.qualitative.Set3
-        )
-        fig_donut.update_traces(textinfo='percent+label', textposition='outside')
-        fig_donut.update_layout(
-            title_font_size=14,
-            showlegend=True,
-            height=400,
-            margin=dict(t=50, b=20, l=20, r=20)
-        )
-        st.plotly_chart(fig_donut, use_container_width=True)
-    else:
-        st.write("No completed work orders available to display all Work Type distribution.")
+    st.markdown('<div class="card"><div class="card-title">Scheduled vs Completed This Week</div><div class="card-content">', unsafe_allow_html=True)
+    fig_scheduled = px.pie(
+        names=["Completed", "Scheduled"],
+        values=[9, 1],  # Example values from image
+        hole=0.4,
+        color_discrete_sequence=["#90EE90", "#32CD32"]
+    )
+    fig_scheduled.update_layout(height=200, margin=dict(t=20, b=20, l=20, r=20), showlegend=False)
+    st.plotly_chart(fig_scheduled, use_container_width=True)
+    st.markdown("<p>9 Completed</p><p>1 Scheduled</p>", unsafe_allow_html=True)
+    st.markdown('</div></div>', unsafe_allow_html=True)
+
+# Work Completion This Week Card
+with col3:
+    st.markdown('<div class="card"><div class="card-title">Work Completion This Week</div><div class="card-content">', unsafe_allow_html=True)
+    fig_completion = px.pie(
+        names=["Completed"],
+        values=[10],  # Example value from image
+        hole=0.4,
+        color_discrete_sequence=["#90EE90"]
+    )
+    fig_completion.update_layout(height=200, margin=dict(t=20, b=20, l=20, r=20), showlegend=False)
+    st.plotly_chart(fig_completion, use_container_width=True)
+    st.markdown("<p>10 Completed</p>", unsafe_allow_html=True)
+    st.markdown('</div></div>', unsafe_allow_html=True)
+
+# Operations Monitor Card
+with col4:
+    st.markdown('<div class="card"><div class="card-title">Operations Monitor</div><div class="card-content">', unsafe_allow_html=True)
+    fig_ops = px.pie(
+        names=["Past Due", "Ready"],
+        values=[1, 7],  # Example values from image
+        hole=0.4,
+        color_discrete_sequence=["#FFD700", "#90EE90"]
+    )
+    fig_ops.update_layout(height=200, margin=dict(t=20, b=20, l=20, r=20), showlegend=False)
+    st.plotly_chart(fig_ops, use_container_width=True)
+    st.markdown("<p>1 Past Due</p><p>7 Ready</p>", unsafe_allow_html=True)
+    st.markdown('</div></div>', unsafe_allow_html=True)
+
+# Additional Cards (Row 2)
+col5, col6, col7, col8 = st.columns(4)
+
+# Released Work Orders Top 5 Work Centres
+with col5:
+    st.markdown('<div class="card"><div class="card-title">Released Work Orders Top 5 Work Centres</div><div class="card-content">', unsafe_allow_html=True)
+    st.markdown("<p>Work Center 1: 8</p><p>Work Center 2: 2</p>", unsafe_allow_html=True)  # Placeholder, replace with actual data
+    st.markdown('</div></div>', unsafe_allow_html=True)
+
+# Work Orders with Definition Last 6 Months
+with col6:
+    st.markdown('<div class="card"><div class="card-title">Work Orders with Definition Last 6 Months</div><div class="card-content">', unsafe_allow_html=True)
+    fig_def = px.pie(
+        names=["With Work"],
+        values=[10],  # Example value from image
+        hole=0.4,
+        color_discrete_sequence=["#90EE90"]
+    )
+    fig_def.update_layout(height=200, margin=dict(t=20, b=20, l=20, r=20), showlegend=False)
+    st.plotly_chart(fig_def, use_container_width=True)
+    st.markdown("<p>10 With Work</p>", unsafe_allow_html=True)
+    st.markdown('</div></div>', unsafe_allow_html=True)
+
+# Assets with Most Work Orders Last 6 Months
+with col7:
+    st.markdown('<div class="card"><div class="card-title">Assets with Most Work Orders Last 6 Months</div><div class="card-content">', unsafe_allow_html=True)
+    st.bar_chart({"2016": [6], "2017": [4], "2018": [2]})  # Example values from image
+    st.markdown('</div></div>', unsafe_allow_html=True)
+
+# Past Due Operations Top 5 Work Centres
+with col8:
+    st.markdown('<div class="card"><div class="card-title">Past Due Operations Top 5 Work Centres</div><div class="card-content">', unsafe_allow_html=True)
+    st.markdown("<p>Work Center 1: 8</p><p>Work Center 2: 2</p>", unsafe_allow_html=True)  # Placeholder, replace with actual data
+    st.markdown('</div></div>', unsafe_allow_html=True)
 
 # Reliability Metrics
 st.subheader("🔧 Reliability Metrics")
@@ -437,20 +516,11 @@ if not filtered_df.empty and 'ParentLocation' in filtered_df:
     st.subheader("📈 PM Compliance Trend by Location")
     location_compliance = filtered_df.groupby('ParentLocation').apply(lambda x: calculate_work_order_metrics(x)['pm_compliance']).reset_index()
     location_compliance.columns = ['ParentLocation', 'PM Compliance']
-    
-    # Ensure PM Compliance values are numeric and handle any NaN
     location_compliance['PM Compliance'] = pd.to_numeric(location_compliance['PM Compliance'], errors='coerce').fillna(0)
-    
     fig_compliance = go.Figure()
-    fig_compliance.add_trace(go.Bar(
-        x=location_compliance['ParentLocation'], y=location_compliance['PM Compliance'],
-        marker_color='#32659C'
-    ))
-    fig_compliance.add_shape(type="line", x0=-0.5, x1=len(location_compliance)-0.5, y0=80, y1=80,
-                             line=dict(color="red", width=2, dash="dash"),
-                             name="Target (80%)")
-    fig_compliance.update_layout(title="PM Compliance by Location", yaxis_title="Compliance (%)",
-                                 yaxis_range=[0, 100], showlegend=False)
+    fig_compliance.add_trace(go.Bar(x=location_compliance['ParentLocation'], y=location_compliance['PM Compliance'], marker_color='#32659C'))
+    fig_compliance.add_shape(type="line", x0=-0.5, x1=len(location_compliance)-0.5, y0=80, y1=80, line=dict(color="red", width=2, dash="dash"), name="Target (80%)")
+    fig_compliance.update_layout(title="PM Compliance by Location", yaxis_title="Compliance (%)", yaxis_range=[0, 100], showlegend=False)
     st.plotly_chart(fig_compliance)
 
 # Work Orders by Priority Level Chart
