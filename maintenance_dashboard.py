@@ -5,6 +5,35 @@ import plotly.graph_objects as go
 from datetime import datetime
 from streamlit_elements import elements, mui, html
 
+
+st.set_page_config(layout="wide")
+
+st.markdown("""
+    <style>
+        /* Make container full width with adaptive padding */
+        .main .block-container {
+            padding-left: 1.5rem;
+            padding-right: 1.5rem;
+            max-width: 100%;
+        }
+
+        /* Sidebar styling to be responsive */
+        section[data-testid="stSidebar"] {
+            width: 350px !important;
+            max-width: 90vw;
+            background-color: #32659C;
+            color: white;
+            padding: 20px;
+        }
+
+        /* Prevent scroll overflow issues on smaller screens */
+        html, body, [class*="ViewBlockContainer"] {
+            overflow-x: hidden;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
+
 # Load Data
 @st.cache_data
 def load_data():
