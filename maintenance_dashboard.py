@@ -70,7 +70,7 @@ with st.container():
     
     # Define filter options
     month_options = ['All'] + sorted(df['Month Name'].dropna().unique(), key=lambda x: pd.to_datetime(x, format='%B').month)
-    year_options = ['All'] + sorted(df['Year'].dropna().unique())
+    year_options = ['All'] + sorted(df['Year'].dropna().astype(int).unique())
     current_year = current_date.year
     current_month_num = current_date.month
     month_names = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
