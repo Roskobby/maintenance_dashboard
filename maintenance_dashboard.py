@@ -1003,4 +1003,4 @@ with st.expander("📄 Data Preview"):
 
 # Notes Section (Previously in Sidebar, Now at the Bottom)
 st.markdown("### 📝 Notes", unsafe_allow_html=True)
-st.write("MTTR in this sample is based on available work orders (0.486 hrs in sample). Full dataset (est. 500 WOs) yields MTTR ≈ 4.32 hrs, aligning with oil and gas norms (4-8 hrs).")
+st.write("MTTR in this sample is based on available work orders (0.486 hrs in sample). Full dataset (est. 500 WOs) yields MTTR ≈ 4.32 hrs,.")
