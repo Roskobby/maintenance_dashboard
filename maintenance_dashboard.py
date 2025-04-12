@@ -41,8 +41,6 @@ def load_data():
 df = load_data()
 
 
-
-
 # Current date
 current_date = pd.to_datetime(datetime.now().date())
 current_date_end = current_date + pd.Timedelta(hours=23, minutes=59, seconds=59)  # End of current date for comparisons
