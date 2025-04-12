@@ -22,12 +22,6 @@ def load_data():
 
     for col in datetime_cols:
         df[col] = pd.to_datetime(df[col], format='%m/%d/%Y %H:%M', errors='coerce')
-
-    # Update here: derive Year and Month from ActualEndDateTime
-    # df['Month Name'] = df['ActualEndDateTime'].dt.strftime('%B')
-    # df['Year'] = df['ActualEndDateTime'].dt.year.astype('Int64')
-    # df['MonthY'] = df['ActualEndDateTime'].dt.strftime('%Y-%m') + ' (' + df['ActualEndDateTime'].dt.strftime('%b') + ')'
-    # Determine Week of Month using RequiredByDate first, fallback to OrderDate
   
     df['WorkPriority'] = df['WorkPriority'].replace({'P1': 'P1 - High', 'P2': 'P2 - Medium', 'P3': 'P3 - Low'})
     df['Duration'] = (df['ActualEndDateTime'] - df['ActualStartDateTime']).dt.total_seconds() / 3600
