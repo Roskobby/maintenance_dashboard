@@ -1154,16 +1154,6 @@ with dashboard_tab:
 with table_metrics_tab:
     st.markdown("### 📋 Table Metrics", unsafe_allow_html=True)
     
-    # MTTR by Location
-    with st.expander("🌐 MTTR by Location"):
-        st.markdown("#### Mean Time to Repair by Location (Hours)")
-        st.dataframe(
-            metrics["location_metrics"][['ParentLocation', 'mttr_hrs']].style.format({
-                'mttr_hrs': '{:.2f}'
-            }),
-            use_container_width=True
-        )
-    
     # Current Work Orders
     with st.expander("📅 Current Work Orders"):
         st.markdown("#### Work Orders for Selected Filters")
@@ -1187,6 +1177,42 @@ with table_metrics_tab:
             )
         else:
             st.write("No work orders for the selected filters.")
+
+        # Project Orders YTD
+    with st.expander("🏗️ Project Orders YTD"):
+        st.markdown("#### Project Work Orders Year to Date")
+        if not filtered_df.empty:
+            ytd_start = pd.to_datetime(f"{current_date.year}-01-01")
+            project_query = """
+                SELECT "Order", OrderDate, AssetName, WorkDescription, 
+                       WorkType, SystemType, WorkStatus, WorkPriority
+                FROM filtered_df
+                WHERE WorkType = 'Projects'
+                AND OrderDate >= ?
+                AND OrderDate <= ?
+                ORDER BY OrderDate
+            """
+            project_df = duckdb.query(project_query, params=[ytd_start, current_date]).df()
+            st.dataframe(
+                project_df,
+                use_container_width=True,
+                column_config={
+                    'OrderDate': st.column_config.DateColumn(format="MM/DD/YYYY")
+                }
+            )
+        else:
+            st.write("No project orders for the selected filters.")
+
+            # MTTR by Location
+    with st.expander("🌐 MTTR by Location"):
+        st.markdown("#### Mean Time to Repair by Location (Hours)")
+        st.dataframe(
+            metrics["location_metrics"][['ParentLocation', 'mttr_hrs']].style.format({
+                'mttr_hrs': '{:.2f}'
+            }),
+            use_container_width=True
+        )
+    
     
     # Work Orders by SystemType
     with st.expander("🛠️ Work Orders by SystemType"):
@@ -1277,30 +1303,6 @@ with table_metrics_tab:
         else:
             st.write("No FailureType data for the selected filters.")
     
-    # Project Orders YTD
-    with st.expander("🏗️ Project Orders YTD"):
-        st.markdown("#### Project Work Orders Year to Date")
-        if not filtered_df.empty:
-            ytd_start = pd.to_datetime(f"{current_date.year}-01-01")
-            project_query = """
-                SELECT "Order", OrderDate, AssetName, WorkDescription, 
-                       WorkType, SystemType, WorkStatus, WorkPriority
-                FROM filtered_df
-                WHERE WorkType = 'Projects'
-                AND OrderDate >= ?
-                AND OrderDate <= ?
-                ORDER BY OrderDate
-            """
-            project_df = duckdb.query(project_query, params=[ytd_start, current_date]).df()
-            st.dataframe(
-                project_df,
-                use_container_width=True,
-                column_config={
-                    'OrderDate': st.column_config.DateColumn(format="MM/DD/YYYY")
-                }
-            )
-        else:
-            st.write("No project orders for the selected filters.")
     
     # Apply consistent styling
     st.markdown("""
