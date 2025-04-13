@@ -78,6 +78,7 @@ with st.container():
     # Define filter options
     month_options = ['All'] + sorted(df['Month Name'].dropna().unique(), key=lambda x: pd.to_datetime(x, format='%B').month)
     year_options = ['All'] + sorted(df['Year'].dropna().astype(int).unique())
+    week_options = ['All'] + sorted(df['WeekOfYear'].dropna().astype(int).unique())
     current_year = current_date.year
     current_month_num = current_date.month
     month_names = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
@@ -88,6 +89,7 @@ with st.container():
         default_months = ['All']
     
     default_years = [current_year] if current_year in year_options else ['All']
+    default_weeks = ['All']
     work_type_options = ['All'] + list(df['WorkType'].dropna().unique())
     work_status_options = ['All'] + list(df['WorkStatus'].dropna().unique())
     work_priority_options = ['All', 'P1 - High', 'P2 - Medium', 'P3 - Low']
@@ -114,6 +116,7 @@ with st.container():
             st.markdown('<div class="filter-container">', unsafe_allow_html=True)
             selected_work_priority = st.multiselect("Select Work Priority", work_priority_options, default=['All'], key="work_priority_filter")
             selected_locations = st.multiselect("Select Location", location_options, default=['All'], key="location_filter")
+            selected_weeks = st.multiselect("Select Week of Year", week_options, default=default_weeks, key="week_filter")
             st.markdown('</div>', unsafe_allow_html=True)
 
 # Apply Filters
@@ -130,6 +133,8 @@ if selected_work_priority and 'All' not in selected_work_priority:
     filtered_df = filtered_df[filtered_df['WorkPriority'].isin(selected_work_priority)]
 if selected_locations and 'All' not in selected_locations:
     filtered_df = filtered_df[filtered_df['ParentLocation'].isin(selected_locations)]
+if selected_weeks and 'All' not in selected_weeks:
+    filtered_df = filtered_df[filtered_df['WeekOfYear'].isin(selected_weeks)]
 
 if filtered_df.empty:
     st.warning("No data matches the selected filters. Please adjust your filter selections.")
@@ -247,7 +252,7 @@ def calculate_work_order_metrics(df):
     """
     avg_cycle_time_query = """
     SELECT AVG(DATEDIFF('day', "ActualStartDateTime", "ActualEndDateTime")) as avg_cycle_time
-    FROM df
+    FROM df 
     WHERE "WorkStatus" IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog')
     AND "ActualStartDateTime" IS NOT NULL AND "ActualEndDateTime" IS NOT NULL
     """
@@ -375,8 +380,11 @@ def calculate_work_order_metrics(df):
     pmp_trend_df = pd.DataFrame(pmp_trend)
     completion_rate_trend_df = pd.DataFrame(completion_rate_trend)
 
-    # Location-Based Metrics for Table
-    location_metrics_query = """
+     # Location-Based Metrics for Table
+    week_filter = "" if not selected_weeks or 'All' in selected_weeks else "AND WeekOfYear IN ({})".format(
+        ",".join([str(w) for w in selected_weeks])
+    )
+    location_metrics_query = f"""
     SELECT 
         "ParentLocation",
         SUM(CASE WHEN "WorkStatus" NOT IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Cancelled') THEN 1 ELSE 0 END) as open_wo,
@@ -385,9 +393,63 @@ def calculate_work_order_metrics(df):
         AVG(CASE WHEN "OnTimeStatus" = 'Late' THEN DATEDIFF('day', "RequiredByDate", "ActualEndDateTime") END) as avg_pm_backlog_aging
     FROM df
     WHERE "ActualStartDateTime" IS NOT NULL AND "ActualEndDateTime" IS NOT NULL
+    {week_filter}
     GROUP BY "ParentLocation"
     """
     location_metrics = duckdb.query(location_metrics_query, params=[current_date]).df()
+
+    # Work Order Count Trend for last 6 months (including current month)
+    monthly_wo_trend = []
+    current_month = current_date.replace(day=1)  # Start of current month (Apr 1, 2025)
+    for i in range(5, -1, -1):
+        month_start = (current_month - pd.offsets.MonthBegin(i)).replace(hour=0, minute=0, second=0)
+        month_end = (month_start + pd.offsets.MonthEnd(0)).replace(hour=23, minute=59, second=59)
+        month_label = month_start.strftime('%b %Y')
+        
+        total_wo_query = """
+        SELECT COUNT(*) as total_wo
+        FROM df
+        WHERE "OrderDate" BETWEEN ? AND ?
+        """
+        completed_wo_query = """
+        SELECT COUNT(*) as completed_wo
+        FROM df
+        WHERE "WorkStatus" IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog')
+        AND "ActualEndDateTime" BETWEEN ? AND ?
+        """
+        total_wo = duckdb.query(total_wo_query, params=[month_start, month_end]).fetchone()[0] or 0
+        completed_wo = duckdb.query(completed_wo_query, params=[month_start, month_end]).fetchone()[0] or 0
+        
+        monthly_wo_trend.append({
+            'Month': month_label,
+            'Total Work Orders': total_wo,
+            'Completed Work Orders': completed_wo
+        })
+
+        # Ensure all 6 months are included, even if no data
+        expected_months = [(current_month - pd.offsets.MonthBegin(i)).strftime('%b %Y') for i in range(5, -1, -1)]
+        monthly_wo_trend_df = pd.DataFrame(monthly_wo_trend)
+        if not monthly_wo_trend_df.empty:
+            # Reindex to include all expected months
+            monthly_wo_trend_df = monthly_wo_trend_df.set_index('Month').reindex(expected_months).fillna(0).reset_index()
+        else:
+            # Create empty DataFrame with expected months
+            monthly_wo_trend_df = pd.DataFrame({
+                'Month': expected_months,
+                'Total Work Orders': [0] * 6,
+                'Completed Work Orders': [0] * 6
+            })
+
+        # Work Order On-Time Completion Percentage
+        on_time_completion_query = """
+        SELECT 
+            SUM(CASE WHEN "OnTimeStatus" = 'On Time' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0) as on_time_completion_pct
+        FROM df
+        WHERE "RequiredByDate" IS NOT NULL
+        AND "ActualEndDateTime" IS NOT NULL
+        AND "WorkStatus" IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog')
+        """
+        on_time_completion_pct = duckdb.query(on_time_completion_query).fetchone()[0] or 0
 
     return {
         "open_wo_week": open_wo_week,
@@ -411,7 +473,9 @@ def calculate_work_order_metrics(df):
         "completion_rate": completion_rate,
         "pmp_trend_df": pmp_trend_df,
         "completion_rate_trend_df": completion_rate_trend_df,
-        "location_metrics": location_metrics
+        "location_metrics": location_metrics,
+        "monthly_wo_trend_df": monthly_wo_trend_df,
+        "on_time_completion_pct": on_time_completion_pct 
     }
 
 metrics = calculate_work_order_metrics(filtered_df)
@@ -794,7 +858,7 @@ with dashboard_tab:
     if not filtered_df.empty and 'ParentLocation' in filtered_df:
         compliance_query = """
         SELECT "ParentLocation",
-               SUM(CASE WHEN "OnTimeStatus" = 'On Time' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as pm_compliance
+            SUM(CASE WHEN "OnTimeStatus" = 'On Time' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as pm_compliance
         FROM df
         WHERE "WorkType" IN ('Planned Maint.', 'Planned Corrective Maint.', 'Planned Improvement', 'Inspection', 'Projects', 'Predictive Maint')
         AND "OnTimeStatus" IS NOT NULL
@@ -804,9 +868,26 @@ with dashboard_tab:
         GROUP BY "ParentLocation"
         """
         location_compliance = duckdb.query(compliance_query).df()
+        
+        # Sort by compliance in descending order for tallest to shortest
+        location_compliance = location_compliance.sort_values('pm_compliance', ascending=False)
+        
         fig_compliance = go.Figure()
-        fig_compliance.add_trace(go.Bar(x=location_compliance['ParentLocation'], y=location_compliance['pm_compliance'], marker_color='#15abbd'))
-        fig_compliance.add_shape(type="line", x0=-0.5, x1=len(location_compliance)-0.5, y0=80, y1=80, line=dict(color="red", width=2, dash="dash"))
+        fig_compliance.add_trace(
+            go.Bar(
+                x=location_compliance['ParentLocation'],
+                y=location_compliance['pm_compliance'],
+                marker_color=px.colors.qualitative.Pastel1[:len(location_compliance)]  # Use Pastel1 colors
+            )
+        )
+        fig_compliance.add_shape(
+            type="line",
+            x0=-0.5,
+            x1=len(location_compliance)-0.5,
+            y0=80,
+            y1=80,
+            line=dict(color="red", width=2, dash="dash")
+        )
         fig_compliance.update_layout(
             title="PM Compliance by Location",
             xaxis_title="Location",
@@ -869,92 +950,78 @@ with dashboard_tab:
         )
         st.plotly_chart(fig, use_container_width=True)
 
-    # KPI 24: PMP Trend Over Time
+    # KPI 24: Monthly Work Order Trends
     with col2:
-        fig_pmp_trend = px.line(
-            metrics["pmp_trend_df"],
-            x='Month',
-            y='PMP',
-            title='PMP Trend Over Time',
-            markers=True,
-            color_discrete_sequence=['#32659C']
+        fig_wo_trend = go.Figure()
+        fig_wo_trend.add_trace(
+            go.Scatter(
+                x=metrics["monthly_wo_trend_df"]['Month'],
+                y=metrics["monthly_wo_trend_df"]['Total Work Orders'],
+                mode='lines+markers',
+                name='Total Work Orders',
+                line=dict(color=px.colors.qualitative.Pastel1[0])
+            )
         )
-        fig_pmp_trend.update_layout(
+        fig_wo_trend.add_trace(
+            go.Scatter(
+                x=metrics["monthly_wo_trend_df"]['Month'],
+                y=metrics["monthly_wo_trend_df"]['Completed Work Orders'],
+                mode='lines+markers',
+                name='Completed Work Orders',
+                line=dict(color=px.colors.qualitative.Pastel1[1])
+            )
+        )
+        fig_wo_trend.update_layout(
+            title='Monthly Work Order Trends (Last 6 Months)',
             xaxis_title="Month",
-            yaxis_title="PMP (%)",
+            yaxis_title="Work Order Count",
             margin=dict(l=40, r=40, t=40, b=40),
             font=dict(size=14, color="white"),
             plot_bgcolor='rgba(0, 0, 0, 0)',
-            paper_bgcolor='rgba(0, 0, 0, 0)'
+            paper_bgcolor='rgba(0, 0, 0, 0)',
+            showlegend=True,
+            yaxis=dict(rangemode="tozero")  # Ensure y-axis starts at 0 but scales dynamically
         )
-        st.plotly_chart(fig_pmp_trend, use_container_width=True)
+        st.plotly_chart(fig_wo_trend, use_container_width=True)
 
-    # KPI 25: Work Order Completion Rate Trend
+    # KPI 25: Work Order On-Time Completion
     with col3:
-        fig_completion_trend = px.line(
-            metrics["completion_rate_trend_df"],
-            x='Month',
-            y='Completion Rate',
-            title='Work Order Completion Rate Trend',
-            markers=True,
-            color_discrete_sequence=['#32659C']
-        )
-        fig_completion_trend.update_layout(
-            xaxis_title="Month",
-            yaxis_title="Completion Rate (%)",
+        fig_gauge = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=metrics["on_time_completion_pct"],
+            title={"text": "Work Order On-Time Completion (%)"},
+            gauge={
+                "axis": {"range": [0, 100], "tickwidth": 1, "tickcolor": "white"},
+                "bar": {"color": px.colors.qualitative.Pastel1[1]},  # Light blue for gauge bar
+                "bgcolor": "rgba(0, 0, 0, 0)",
+                "bordercolor": "white",
+                "steps": [
+                    {"range": [0, 30], "color": px.colors.qualitative.Pastel1[3]},   # Red for 0-10%
+                    {"range": [30, 60], "color": px.colors.qualitative.Pastel1[6]},  # Teal for 10-30%
+                    {"range": [60, 90], "color": px.colors.qualitative.Pastel1[4]},  # Pink for 30-50%
+                    {"range": [90, 100], "color": px.colors.qualitative.Pastel1[2]}  # Green for 90-100%
+                ],
+                "threshold": {
+                    "line": {"color": "red", "width": 4},
+                    "thickness": 0.75,
+                    "value": 90  # Benchmark at 90%
+                }
+            }
+        ))
+        fig_gauge.update_layout(
             margin=dict(l=40, r=40, t=40, b=40),
             font=dict(size=14, color="white"),
             plot_bgcolor='rgba(0, 0, 0, 0)',
             paper_bgcolor='rgba(0, 0, 0, 0)'
         )
-        st.plotly_chart(fig_completion_trend, use_container_width=True)
+        st.plotly_chart(fig_gauge, use_container_width=True)
 
-    # Pareto Charts (KPIs 26-27)
+    # Pareto Charts (KPIs 26-28)
     st.markdown("### 📊 Pareto Analysis", unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
 
-    # KPI 26: Top 10 Locations by Total Aging
+    # KPI 26: Top 10 Work Types by Count
     with col1:
-        pareto_aging_query = """
-        SELECT "ParentLocation", SUM(DATEDIFF('day', "OrderDate", CAST(? AS DATE))) as total_aging
-        FROM df
-        WHERE "WorkStatus" NOT IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog')
-        GROUP BY "ParentLocation"
-        ORDER BY total_aging DESC
-        LIMIT 10
-        """
-        aging_by_location = duckdb.query(pareto_aging_query, params=[current_date]).df()
-        aging_by_location['cumulative'] = aging_by_location['total_aging'].cumsum() / aging_by_location['total_aging'].sum() * 100
-        fig_pareto_aging = go.Figure()
-        fig_pareto_aging.add_trace(go.Bar(
-            x=aging_by_location['ParentLocation'],
-            y=aging_by_location['total_aging'],
-            name='Total Aging',
-            marker_color='#32659C'
-        ))
-        fig_pareto_aging.add_trace(go.Scatter(
-            x=aging_by_location['ParentLocation'],
-            y=aging_by_location['cumulative'],
-            name='Cumulative %',
-            yaxis='y2',
-            mode='lines+markers',
-            line=dict(color='#FF6F61')
-        ))
-        fig_pareto_aging.update_layout(
-            title="Top 10 Locations by Total Aging",
-            xaxis_title="Location",
-            yaxis=dict(title="Total Aging (Days)"),
-            yaxis2=dict(title="Cumulative %", overlaying='y', side='right', range=[0, 100]),
-            showlegend=True,
-            margin=dict(l=40, r=40, t=40, b=40),
-            font=dict(size=14, color="white"),
-            plot_bgcolor='rgba(0, 0, 0, 0)',
-            paper_bgcolor='rgba(0, 0, 0, 0)'
-        )
-        st.plotly_chart(fig_pareto_aging, use_container_width=True)
-
-    # KPI 27: Top 10 Work Types by Count
-    with col2:
         pareto_worktype_query = """
         SELECT "WorkType", COUNT(*) as count
         FROM df
@@ -969,7 +1036,7 @@ with dashboard_tab:
             x=worktype_counts['WorkType'],
             y=worktype_counts['count'],
             name='Count',
-            marker_color='#32659C'
+            marker_color=px.colors.qualitative.Pastel1[0]
         ))
         fig_pareto_worktype.add_trace(go.Scatter(
             x=worktype_counts['WorkType'],
@@ -992,6 +1059,86 @@ with dashboard_tab:
         )
         st.plotly_chart(fig_pareto_worktype, use_container_width=True)
 
+    # KPI 27: Top 10 FailureType by Count
+    with col2:
+        pareto_failure_type_query = """
+        SELECT "FailureType", COUNT(*) as count
+        FROM df
+        WHERE "FailureType" IS NOT NULL
+        GROUP BY "FailureType"
+        ORDER BY count DESC
+        LIMIT 10
+        """
+        failure_type_counts = duckdb.query(pareto_failure_type_query).df()
+        failure_type_counts['cumulative'] = failure_type_counts['count'].cumsum() / failure_type_counts['count'].sum() * 100
+        fig_pareto_failure_type = go.Figure()
+        fig_pareto_failure_type.add_trace(go.Bar(
+            x=failure_type_counts['FailureType'],
+            y=failure_type_counts['count'],
+            name='Count',
+            marker_color=px.colors.qualitative.Pastel1[0]
+        ))
+        fig_pareto_failure_type.add_trace(go.Scatter(
+            x=failure_type_counts['FailureType'],
+            y=failure_type_counts['cumulative'],
+            name='Cumulative %',
+            yaxis='y2',
+            mode='lines+markers',
+            line=dict(color='#FF6F61')  # Coral, like KPI 26 & 27
+        ))
+        fig_pareto_failure_type.update_layout(
+            title="Top 10 Failure Types by Count",
+            xaxis_title="Failure Type",
+            yaxis=dict(title="Count"),
+            yaxis2=dict(title="Cumulative %", overlaying='y', side='right', range=[0, 100]),
+            showlegend=True,
+            margin=dict(l=40, r=40, t=40, b=40),
+            font=dict(size=14, color="white"),
+            plot_bgcolor='rgba(0, 0, 0, 0)',
+            paper_bgcolor='rgba(0, 0, 0, 0)'
+        )
+        st.plotly_chart(fig_pareto_failure_type, use_container_width=True)
+
+    # KPI 28: Top 10 SystemType by Count
+    with col3:
+        pareto_system_type_query = """
+        SELECT "SystemType", COUNT(*) as count
+        FROM df
+        WHERE "SystemType" IS NOT NULL
+        GROUP BY "SystemType"
+        ORDER BY count DESC
+        LIMIT 10
+        """
+        system_type_counts = duckdb.query(pareto_system_type_query).df()
+        system_type_counts['cumulative'] = system_type_counts['count'].cumsum() / system_type_counts['count'].sum() * 100
+        fig_pareto_system_type = go.Figure()
+        fig_pareto_system_type.add_trace(go.Bar(
+            x=system_type_counts['SystemType'],
+            y=system_type_counts['count'],
+            name='Count',
+            marker_color=px.colors.qualitative.Pastel1[0]  # Light blue
+        ))
+        fig_pareto_system_type.add_trace(go.Scatter(
+            x=system_type_counts['SystemType'],
+            y=system_type_counts['cumulative'],
+            name='Cumulative %',
+            yaxis='y2',
+            mode='lines+markers',
+            line=dict(color='#FF6F61')  # Coral
+        ))
+        fig_pareto_system_type.update_layout(
+            title="Top 10 System Types by Count",
+            xaxis_title="System Type",
+            yaxis=dict(title="Count"),
+            yaxis2=dict(title="Cumulative %", overlaying='y', side='right', range=[0, 100]),
+            showlegend=True,
+            margin=dict(l=40, r=40, t=40, b=40),
+            font=dict(size=14, color="white"),
+            plot_bgcolor='rgba(0, 0, 0, 0)',
+            paper_bgcolor='rgba(0, 0, 0, 0)'
+        )
+        st.plotly_chart(fig_pareto_system_type, use_container_width=True)
+
     # Data Table and Downloadable Report
     with st.expander("📄 Data Preview"):
         st.markdown("### Filtered Dataset", unsafe_allow_html=True)
@@ -1004,20 +1151,173 @@ with dashboard_tab:
             help="Downloads the filtered dataset as a CSV file for further analysis."
         )
 
-    # Notes Section
-    st.markdown("### 📝 Notes", unsafe_allow_html=True)
-    st.write("Full dataset (est. 500 WOs) yields more robust metrics compared to sample.")
-
 with table_metrics_tab:
     st.markdown("### 📋 Table Metrics", unsafe_allow_html=True)
     
     # MTTR by Location
     with st.expander("🌐 MTTR by Location"):
         st.markdown("#### Mean Time to Repair by Location (Hours)")
-        st.dataframe(metrics["location_metrics"][['ParentLocation', 'mttr_hrs']].style.format({
-            'mttr_hrs': '{:.2f}'
-        }))
+        st.dataframe(
+            metrics["location_metrics"][['ParentLocation', 'mttr_hrs']].style.format({
+                'mttr_hrs': '{:.2f}'
+            }),
+            use_container_width=True
+        )
     
-    # Placeholder for Additional Metrics
-    with st.expander("🔢 Additional Metrics"):
-        st.write("Placeholder for additional tabular metrics to be provided (e.g., PM Compliance by Location, etc.).")
+    # Current Work Orders
+    with st.expander("📅 Current Work Orders"):
+        st.markdown("#### Work Orders for Selected Filters")
+        if not filtered_df.empty:
+            display_df = filtered_df[[
+                'OrderDate', 'ReportedDate', 'RequiredByDate', 'ActualStartDateTime', 
+                'ActualEndDateTime', 'Duration', 'Order', 'AssetName', 'WorkDescription',
+                'WorkType', 'SystemType', 'WorkStatus', 'WorkPriority'
+            ]].sort_values('OrderDate')
+            st.dataframe(
+                display_df,
+                use_container_width=True,
+                column_config={
+                    'OrderDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
+                    'ReportedDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
+                    'RequiredByDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
+                    'ActualStartDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
+                    'ActualEndDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
+                    'Duration': st.column_config.NumberColumn(format="%.2f hrs", min_value=0)
+                }
+            )
+        else:
+            st.write("No work orders for the selected filters.")
+    
+    # Work Orders by SystemType
+    with st.expander("🛠️ Work Orders by SystemType"):
+        st.markdown("#### Work Order Distribution by SystemType")
+        if not filtered_df.empty:
+            system_type_query = """
+                SELECT SystemType, COUNT(*) as count,
+                       ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) as percentage
+                FROM filtered_df
+                WHERE SystemType IS NOT NULL
+                GROUP BY SystemType
+                ORDER BY count DESC
+            """
+            system_type_df = duckdb.query(system_type_query).df()
+            st.dataframe(
+                system_type_df,
+                use_container_width=True,
+                column_config={
+                    'percentage': st.column_config.NumberColumn(format="%.2f%%")
+                }
+            )
+        else:
+            st.write("No SystemType data for the selected filters.")
+    
+    # Work Orders by WorkStatus
+    with st.expander("📊 Work Orders by WorkStatus"):
+        st.markdown("#### Work Order Distribution by WorkStatus")
+        if not filtered_df.empty:
+            status_query = """
+                SELECT WorkStatus, COUNT(*) as count,
+                       ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) as percentage
+                FROM filtered_df
+                GROUP BY WorkStatus
+                ORDER BY count DESC
+            """
+            status_df = duckdb.query(status_query).df()
+            st.dataframe(
+                status_df,
+                use_container_width=True,
+                column_config={
+                    'percentage': st.column_config.NumberColumn(format="%.2f%%")
+                }
+            )
+        else:
+            st.write("No WorkStatus data for the selected filters.")
+    
+    # High-Priority Work Orders
+    with st.expander("🚨 High-Priority Work Orders"):
+        st.markdown("#### High-Priority (P1) Work Orders")
+        if not filtered_df.empty:
+            high_priority_query = """
+                SELECT "Order", OrderDate, AssetName, WorkDescription, WorkStatus
+                FROM filtered_df
+                WHERE WorkPriority = 'P1 - High'
+                ORDER BY OrderDate
+            """
+            high_priority_df = duckdb.query(high_priority_query).df()
+            st.dataframe(
+                high_priority_df,
+                use_container_width=True,
+                column_config={
+                    'OrderDate': st.column_config.DateColumn(format="MM/DD/YYYY")
+                }
+            )
+        else:
+            st.write("No high-priority work orders for the selected filters.")
+    
+    # FailureType Breakdown
+    with st.expander("⚠️ FailureType Breakdown"):
+        st.markdown("#### Work Orders by FailureType")
+        if not filtered_df.empty:
+            failure_type_query = """
+                SELECT FailureType, COUNT(*) as count,
+                       ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) as percentage
+                FROM filtered_df
+                WHERE FailureType IS NOT NULL
+                GROUP BY FailureType
+                ORDER BY count DESC
+            """
+            failure_type_df = duckdb.query(failure_type_query).df()
+            st.dataframe(
+                failure_type_df,
+                use_container_width=True,
+                column_config={
+                    'percentage': st.column_config.NumberColumn(format="%.2f%%")
+                }
+            )
+        else:
+            st.write("No FailureType data for the selected filters.")
+    
+    # Project Orders YTD
+    with st.expander("🏗️ Project Orders YTD"):
+        st.markdown("#### Project Work Orders Year to Date")
+        if not filtered_df.empty:
+            ytd_start = pd.to_datetime(f"{current_date.year}-01-01")
+            project_query = """
+                SELECT "Order", OrderDate, AssetName, WorkDescription, 
+                       WorkType, SystemType, WorkStatus, WorkPriority
+                FROM filtered_df
+                WHERE WorkType = 'Projects'
+                AND OrderDate >= ?
+                AND OrderDate <= ?
+                ORDER BY OrderDate
+            """
+            project_df = duckdb.query(project_query, params=[ytd_start, current_date]).df()
+            st.dataframe(
+                project_df,
+                use_container_width=True,
+                column_config={
+                    'OrderDate': st.column_config.DateColumn(format="MM/DD/YYYY")
+                }
+            )
+        else:
+            st.write("No project orders for the selected filters.")
+    
+    # Apply consistent styling
+    st.markdown("""
+        <style>
+        .stDataFrame {
+            background-color: rgba(0, 0, 0, 0);
+            color: white;
+        }
+        .stDataFrame th, .stDataFrame td {
+            color: white;
+        }
+        .st-expander {
+            background-color: rgba(0, 0, 0, 0);
+            color: white;
+        }
+        .st-expanderHeader {
+            color: white;
+        }
+        </style>
+    """, unsafe_allow_html=True)
