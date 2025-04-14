@@ -188,7 +188,7 @@ def calculate_work_order_metrics(df):
     ]).fetchone()[0] or 0
 
     # High-Level Counts (KPIs 5-9)
-    total_wo = len(df)
+    total_wo = len(df)  # Total work orders in filtered dataset
     open_wo_query = """
     SELECT COUNT(*) as open_wo
     FROM df
@@ -380,19 +380,33 @@ def calculate_work_order_metrics(df):
     pmp_trend_df = pd.DataFrame(pmp_trend)
     completion_rate_trend_df = pd.DataFrame(completion_rate_trend)
 
-     # Location-Based Metrics for Table
+    # Location-Based Metrics for Table
     week_filter = "" if not selected_weeks or 'All' in selected_weeks else "AND WeekOfYear IN ({})".format(
         ",".join([str(w) for w in selected_weeks])
     )
     location_metrics_query = f"""
     SELECT 
         "ParentLocation",
-        SUM(CASE WHEN "WorkStatus" NOT IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Cancelled') THEN 1 ELSE 0 END) as open_wo,
+        SUM(CASE WHEN "WorkStatus" NOT IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog', 'Cancelled') THEN 1 ELSE 0 END) as open_wo,
         AVG(DATEDIFF('day', "OrderDate", CAST(? AS DATE))) as avg_aging,
-        AVG(DATEDIFF('hour', "ActualStartDateTime", "ActualEndDateTime")) as mttr_hrs,
+        SUM(CASE 
+            WHEN "WorkType" IN ('Breakdown', 'Unplanned Corrective Maint.')
+            AND "WorkStatus" IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog')
+            AND "Duration" IS NOT NULL
+            THEN "Duration"
+            ELSE 0 
+        END) * 1.0 / NULLIF(
+            SUM(CASE 
+                WHEN "WorkType" IN ('Breakdown', 'Unplanned Corrective Maint.')
+                AND "WorkStatus" IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog')
+                AND "Duration" IS NOT NULL
+                THEN 1 
+                ELSE 0 
+            END), 0
+        ) as mttr_hrs,
         AVG(CASE WHEN "OnTimeStatus" = 'Late' THEN DATEDIFF('day', "RequiredByDate", "ActualEndDateTime") END) as avg_pm_backlog_aging
     FROM df
-    WHERE "ActualStartDateTime" IS NOT NULL AND "ActualEndDateTime" IS NOT NULL
+    WHERE "ParentLocation" IS NOT NULL
     {week_filter}
     GROUP BY "ParentLocation"
     """
@@ -400,56 +414,56 @@ def calculate_work_order_metrics(df):
 
     # Work Order Count Trend for last 6 months (including current month)
     monthly_wo_trend = []
-    current_month = current_date.replace(day=1)  # Start of current month (Apr 1, 2025)
+    current_month = current_date.replace(day=1)  
     for i in range(5, -1, -1):
         month_start = (current_month - pd.offsets.MonthBegin(i)).replace(hour=0, minute=0, second=0)
         month_end = (month_start + pd.offsets.MonthEnd(0)).replace(hour=23, minute=59, second=59)
         month_label = month_start.strftime('%b %Y')
         
-        total_wo_query = """
-        SELECT COUNT(*) as total_wo
+        total_wo_month_query = """
+        SELECT COUNT(*) as total_wo_month
         FROM df
         WHERE "OrderDate" BETWEEN ? AND ?
         """
-        completed_wo_query = """
-        SELECT COUNT(*) as completed_wo
+        completed_wo_month_query = """
+        SELECT COUNT(*) as completed_wo_month
         FROM df
         WHERE "WorkStatus" IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog')
         AND "ActualEndDateTime" BETWEEN ? AND ?
         """
-        total_wo = duckdb.query(total_wo_query, params=[month_start, month_end]).fetchone()[0] or 0
-        completed_wo = duckdb.query(completed_wo_query, params=[month_start, month_end]).fetchone()[0] or 0
+        total_wo_month = duckdb.query(total_wo_month_query, params=[month_start, month_end]).fetchone()[0] or 0
+        completed_wo_month = duckdb.query(completed_wo_month_query, params=[month_start, month_end]).fetchone()[0] or 0
         
         monthly_wo_trend.append({
             'Month': month_label,
-            'Total Work Orders': total_wo,
-            'Completed Work Orders': completed_wo
+            'Total Work Orders': total_wo_month,
+            'Completed Work Orders': completed_wo_month
         })
 
-        # Ensure all 6 months are included, even if no data
-        expected_months = [(current_month - pd.offsets.MonthBegin(i)).strftime('%b %Y') for i in range(5, -1, -1)]
-        monthly_wo_trend_df = pd.DataFrame(monthly_wo_trend)
-        if not monthly_wo_trend_df.empty:
-            # Reindex to include all expected months
-            monthly_wo_trend_df = monthly_wo_trend_df.set_index('Month').reindex(expected_months).fillna(0).reset_index()
-        else:
-            # Create empty DataFrame with expected months
-            monthly_wo_trend_df = pd.DataFrame({
-                'Month': expected_months,
-                'Total Work Orders': [0] * 6,
-                'Completed Work Orders': [0] * 6
-            })
+    # Ensure all 6 months are included, even if no data
+    expected_months = [(current_month - pd.offsets.MonthBegin(i)).strftime('%b %Y') for i in range(5, -1, -1)]
+    monthly_wo_trend_df = pd.DataFrame(monthly_wo_trend)
+    if not monthly_wo_trend_df.empty:
+        # Reindex to include all expected months
+        monthly_wo_trend_df = monthly_wo_trend_df.set_index('Month').reindex(expected_months).fillna(0).reset_index()
+    else:
+        # Create empty DataFrame with expected months
+        monthly_wo_trend_df = pd.DataFrame({
+            'Month': expected_months,
+            'Total Work Orders': [0] * 6,
+            'Completed Work Orders': [0] * 6
+        })
 
-        # Work Order On-Time Completion Percentage
-        on_time_completion_query = """
-        SELECT 
-            SUM(CASE WHEN "OnTimeStatus" = 'On Time' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0) as on_time_completion_pct
-        FROM df
-        WHERE "RequiredByDate" IS NOT NULL
-        AND "ActualEndDateTime" IS NOT NULL
-        AND "WorkStatus" IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog')
-        """
-        on_time_completion_pct = duckdb.query(on_time_completion_query).fetchone()[0] or 0
+    # Work Order On-Time Completion Percentage
+    on_time_completion_query = """
+    SELECT 
+        SUM(CASE WHEN "OnTimeStatus" = 'On Time' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0) as on_time_completion_pct
+    FROM df
+    WHERE "RequiredByDate" IS NOT NULL
+    AND "ActualEndDateTime" IS NOT NULL
+    AND "WorkStatus" IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog')
+    """
+    on_time_completion_pct = duckdb.query(on_time_completion_query).fetchone()[0] or 0
 
     return {
         "open_wo_week": open_wo_week,
@@ -531,7 +545,9 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Create Tabs
+# -----------------------------------------
+# Create Tabs for Dashboard and Table Metrics
+# -----------------------------------------
 dashboard_tab, table_metrics_tab = st.tabs(["Dashboard", "Table Metrics"])
 
 with dashboard_tab:
@@ -1151,24 +1167,28 @@ with dashboard_tab:
             help="Downloads the filtered dataset as a CSV file for further analysis."
         )
 
+# -----------------------------------------
+# Table Metrics Tab
+# -----------------------------------------
 with table_metrics_tab:
     st.markdown("### 📋 Table Metrics", unsafe_allow_html=True)
     
-    # Current Work Orders
-    with st.expander("📅 Current Work Orders"):
-        st.markdown("#### Work Orders for Selected Filters")
+    # Open Orders (unchanged)
+    with st.expander("📅 Open Work Orders"):
+        st.markdown("#### Open Work Orders for Selected Filters")
         if not filtered_df.empty:
-            display_df = filtered_df[[
-                'OrderDate', 'ReportedDate', 'RequiredByDate', 'ActualStartDateTime', 
-                'ActualEndDateTime', 'Duration', 'Order', 'AssetName', 'WorkDescription',
+            display_df = filtered_df[
+                filtered_df['WorkStatus'].isin(['Open', 'Backlog', 'In Progress', 'Waiting for Approval'])
+            ][[
+                'OrderDate', 'Order', 'AssetName', 'WorkDescription', 'RequiredByDate', 
+                'ActualStartDateTime', 'ActualEndDateTime', 'Duration', 
                 'WorkType', 'SystemType', 'WorkStatus', 'WorkPriority'
-            ]].sort_values('OrderDate')
+            ]].sort_values('OrderDate', ascending=False)
             st.dataframe(
                 display_df,
                 use_container_width=True,
                 column_config={
                     'OrderDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
-                    'ReportedDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
                     'RequiredByDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
                     'ActualStartDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
                     'ActualEndDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
@@ -1176,9 +1196,112 @@ with table_metrics_tab:
                 }
             )
         else:
-            st.write("No work orders for the selected filters.")
-
-        # Project Orders YTD
+            st.write("No open work orders for the selected filters.")
+    
+    # Completed/Closed Work Orders (unchanged)
+    with st.expander("✅ Completed/Closed Work Orders"):
+        st.markdown("#### Completed/Closed Work Orders")
+        if not filtered_df.empty:
+            display_df = filtered_df[
+                (filtered_df['WorkStatus'].isin(['Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog'])) &
+                (filtered_df['ActualEndDateTime'].notna())
+            ][[
+                'OrderDate', 'Order', 'AssetName', 'WorkDescription', 'RequiredByDate', 
+                'ActualStartDateTime', 'ActualEndDateTime', 'Duration', 
+                'WorkType', 'SystemType', 'WorkStatus', 'WorkPriority'
+            ]].sort_values('OrderDate', ascending=False)
+            st.dataframe(
+                display_df,
+                use_container_width=True,
+                column_config={
+                    'OrderDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
+                    'RequiredByDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
+                    'ActualStartDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
+                    'ActualEndDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
+                    'Duration': st.column_config.NumberColumn(format="%.2f hrs", min_value=0)
+                }
+            )
+        else:
+            st.write("No completed/closed work orders for the selected filters.")
+    
+    # New: Corrective Work Orders
+    with st.expander("📋 Corrective Work Orders"):
+        st.markdown("#### Corrective Work Orders")
+        if not filtered_df.empty:
+            corrective_query = """
+                SELECT 
+                    "OrderDate",
+                    "Order",
+                    "AssetName",
+                    "WorkDescription",
+                    "RequiredByDate",
+                    "ActualStartDateTime",
+                    "ActualEndDateTime",
+                    "Duration",
+                    "WorkType",
+                    "SystemType",
+                    "WorkStatus",
+                    "WorkPriority",
+                    "ParentLocation"
+                FROM filtered_df
+                WHERE "WorkType" IN ('Planned Corrective Maint.', 'Unplanned Corrective Maint.', 'Breakdown', 'Planned Improvement')
+                ORDER BY "OrderDate" DESC
+            """
+            corrective_df = duckdb.query(corrective_query).df()
+            st.dataframe(
+                corrective_df,
+                use_container_width=True,
+                column_config={
+                    'OrderDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
+                    'RequiredByDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
+                    'ActualStartDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
+                    'ActualEndDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
+                    'Duration': st.column_config.NumberColumn(format="%.2f hrs", min_value=0)
+                }
+            )
+        else:
+            st.write("No corrective work orders for the selected filters.")
+    
+    # New: Emergency Work Orders
+    with st.expander("🚨 Emergency Work Orders"):
+        st.markdown("#### Emergency Work Orders (P1 - High, Unplanned)")
+        if not filtered_df.empty:
+            emergency_query = """
+                SELECT 
+                    "OrderDate",
+                    "Order",
+                    "AssetName",
+                    "WorkDescription",
+                    "RequiredByDate",
+                    "ActualStartDateTime",
+                    "ActualEndDateTime",
+                    "Duration",
+                    "WorkType",
+                    "SystemType",
+                    "WorkStatus",
+                    "WorkPriority",
+                    "ParentLocation"
+                FROM filtered_df
+                WHERE "WorkType" IN ('Breakdown', 'Unplanned Corrective Maint.')
+                AND "WorkPriority" = 'P1 - High'
+                ORDER BY "OrderDate" DESC
+            """
+            emergency_df = duckdb.query(emergency_query).df()
+            st.dataframe(
+                emergency_df,
+                use_container_width=True,
+                column_config={
+                    'OrderDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
+                    'RequiredByDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
+                    'ActualStartDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
+                    'ActualEndDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
+                    'Duration': st.column_config.NumberColumn(format="%.2f hrs", min_value=0)
+                }
+            )
+        else:
+            st.write("No emergency work orders for the selected filters.")
+    
+    # Project Orders YTD
     with st.expander("🏗️ Project Orders YTD"):
         st.markdown("#### Project Work Orders Year to Date")
         if not filtered_df.empty:
@@ -1202,8 +1325,8 @@ with table_metrics_tab:
             )
         else:
             st.write("No project orders for the selected filters.")
-
-            # MTTR by Location
+    
+    # MTTR by Location 
     with st.expander("🌐 MTTR by Location"):
         st.markdown("#### Mean Time to Repair by Location (Hours)")
         st.dataframe(
@@ -1213,8 +1336,7 @@ with table_metrics_tab:
             use_container_width=True
         )
     
-    
-    # Work Orders by SystemType
+    # Work Orders by SystemType 
     with st.expander("🛠️ Work Orders by SystemType"):
         st.markdown("#### Work Order Distribution by SystemType")
         if not filtered_df.empty:
@@ -1259,7 +1381,7 @@ with table_metrics_tab:
         else:
             st.write("No WorkStatus data for the selected filters.")
     
-    # High-Priority Work Orders
+    # High-Priority Work Orders (unchanged)
     with st.expander("🚨 High-Priority Work Orders"):
         st.markdown("#### High-Priority (P1) Work Orders")
         if not filtered_df.empty:
@@ -1280,7 +1402,7 @@ with table_metrics_tab:
         else:
             st.write("No high-priority work orders for the selected filters.")
     
-    # FailureType Breakdown
+    # FailureType Breakdown (unchanged)
     with st.expander("⚠️ FailureType Breakdown"):
         st.markdown("#### Work Orders by FailureType")
         if not filtered_df.empty:
@@ -1302,7 +1424,85 @@ with table_metrics_tab:
             )
         else:
             st.write("No FailureType data for the selected filters.")
-    
+
+    with st.expander("🔧 Buoy Bush Change-Out Reliability"):
+        st.markdown("#### Buoy Bush Change-Out Reliability")
+
+        if not filtered_df.empty:
+            reliability_query = """
+                SELECT 
+                    "AssetName",
+                    "AssetDescription",
+                    "Order",
+                    "OrderDate",
+                    "WorkDescription",
+                    "ActualEndDateTime",
+                    "Duration",
+                    "WorkStatus",
+                    DATEDIFF('day', 
+                        LAG("ActualEndDateTime") OVER (
+                            PARTITION BY "AssetName" 
+                            ORDER BY "ActualEndDateTime"
+                        ),
+                        "ActualEndDateTime"
+                    ) AS "DaysSinceLastChangeOut"
+                FROM filtered_df
+                WHERE "AssetName" IN ('ABB-ME-BY-03', 'ABB-ME-BY-04', 'ABB-ME-BY-02', 'ABB-ME-BY-05')
+                AND "SystemType" = 'Buoy Body'
+                AND "FailureType" = 'Worn'
+                AND "RemedyType" = 'Replaced'
+                AND "WorkDescription" ILIKE '%UKP Bush%'
+                ORDER BY "AssetName", "ActualEndDateTime"
+            """
+            reliability_df = duckdb.query(reliability_query).df()
+
+            st.markdown("##### 📄 Raw Change-Out Records")
+            st.dataframe(
+                reliability_df,
+                use_container_width=True,
+                column_config={
+                    'OrderDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
+                    'ActualEndDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
+                    'Duration': st.column_config.NumberColumn(format="%.2f hrs", min_value=0),
+                    'DaysSinceLastChangeOut': st.column_config.NumberColumn(format="%d days", min_value=0)
+                }
+            )
+
+            if not reliability_df.empty:
+                st.markdown("##### 📊 Combined Reliability Metrics per Buoy")
+
+                valid_df = reliability_df[reliability_df['DaysSinceLastChangeOut'].notnull()]
+
+                combined_df = valid_df.groupby('AssetName').agg(
+                    ChangeOutCount=('Order', 'count'),
+                    MTTR_Hrs=('Duration', 'mean'),
+                    MTBF_Days=('DaysSinceLastChangeOut', 'mean'),
+                    TotalChangeOutHours=('Duration', 'sum'),
+                    LastChangeOutDate=('ActualEndDateTime', 'max')
+                ).reset_index()
+
+                combined_df['NextEstimatedChangeOut'] = pd.to_datetime(combined_df['LastChangeOutDate']) + pd.to_timedelta(combined_df['MTBF_Days'], unit='D')
+                combined_df['MTTR_Hrs'] = combined_df['MTTR_Hrs'].round(2)
+                combined_df['MTBF_Days'] = combined_df['MTBF_Days'].round(2)
+                combined_df['TotalChangeOutHours'] = combined_df['TotalChangeOutHours'].round(2)
+
+                st.dataframe(
+                    combined_df,
+                    use_container_width=True,
+                    column_config={
+                        'ChangeOutCount': st.column_config.NumberColumn(format="%d"),
+                        'MTTR_Hrs': st.column_config.NumberColumn(format="%.2f hrs"),
+                        'MTBF_Days': st.column_config.NumberColumn(format="%.2f days"),
+                        'TotalChangeOutHours': st.column_config.NumberColumn(format="%.2f hrs"),
+                        'LastChangeOutDate': st.column_config.DatetimeColumn(format="YYYY-MM-DD"),
+                        'NextEstimatedChangeOut': st.column_config.DatetimeColumn(format="YYYY-MM-DD")
+                    }
+                )
+            else:
+                st.info("No summary metrics available.")
+        else:
+            st.warning("No buoy bush change-out data for the selected filters.")
+
     
     # Apply consistent styling
     st.markdown("""
