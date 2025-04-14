@@ -1175,7 +1175,7 @@ with table_metrics_tab:
     
     # Open Orders (unchanged)
     with st.expander("📅 Open Work Orders"):
-        st.markdown("#### Open Work Orders for Selected Filters")
+        st.markdown("#### Open Work Orders")
         if not filtered_df.empty:
             display_df = filtered_df[
                 filtered_df['WorkStatus'].isin(['Open', 'Backlog', 'In Progress', 'Waiting for Approval'])
@@ -1264,7 +1264,7 @@ with table_metrics_tab:
     
     # New: Emergency Work Orders
     with st.expander("🚨 Emergency Work Orders"):
-        st.markdown("#### Emergency Work Orders (P1 - High, Unplanned)")
+        st.markdown("#### Emergency Work Orders (Breakdown, Unplanned)")
         if not filtered_df.empty:
             emergency_query = """
                 SELECT 
