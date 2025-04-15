@@ -941,9 +941,9 @@ with dashboard_tab:
         planned_pct = (planned_hours_pie / total_pie_hours * 100) if total_pie_hours > 0 else 0  # Use direct calculation
 
         # Debug
-        st.write(f"KPI 23: Planned Hours = {planned_hours_pie:.2f}, Corrective Hours = {corrective_hours_pie:.2f}, Total Hours = {total_pie_hours:.2f}")
-        st.write(f"KPI 23 Raw: Planned % = {(planned_hours_pie / total_pie_hours * 100):.2f}, Corrective % = {(corrective_hours_pie / total_pie_hours * 100):.2f}")
-        st.write(f"KPI 23 Display: Planned % = {planned_pct:.2f}, Corrective % = {corrective_pct:.2f}")
+        #st.write(f"KPI 23: Planned Hours = {planned_hours_pie:.2f}, Corrective Hours = {corrective_hours_pie:.2f}, Total Hours = {total_pie_hours:.2f}")
+        #st.write(f"KPI 23 Raw: Planned % = {(planned_hours_pie / total_pie_hours * 100):.2f}, Corrective % = {(corrective_hours_pie / total_pie_hours * 100):.2f}")
+        #st.write(f"KPI 23 Display: Planned % = {planned_pct:.2f}, Corrective % = {corrective_pct:.2f}")
 
         fig = go.Figure(
             data=[
@@ -1337,7 +1337,7 @@ with table_metrics_tab:
         )
     
     # Work Orders by WorkType 
-    with st.expander("🛠️ Work Orders by WorkType"):
+    with st.expander("🛠️ Work Order Distribution by WorkType"):
         st.markdown("#### Work Order Distribution by WorkType")
         if not filtered_df.empty:
             worktype_query = """
