@@ -1402,7 +1402,7 @@ with table_metrics_tab:
         else:
             st.write("No high-priority work orders for the selected filters.")
     
-    # FailureType Breakdown (unchanged)
+    # FailureType Breakdown
     with st.expander("⚠️ FailureType Breakdown"):
         st.markdown("#### Work Orders by FailureType")
         if not filtered_df.empty:
@@ -1425,6 +1425,7 @@ with table_metrics_tab:
         else:
             st.write("No FailureType data for the selected filters.")
 
+    # Buoy Bush Change-Out Reliability
     with st.expander("🔧 Buoy Bush Change-Out Reliability"):
         st.markdown("#### Buoy Bush Change-Out Reliability")
 
@@ -1436,6 +1437,7 @@ with table_metrics_tab:
                     "Order",
                     "OrderDate",
                     "WorkDescription",
+                    "ActualStartDateTime",
                     "ActualEndDateTime",
                     "Duration",
                     "WorkStatus",
@@ -1452,16 +1454,17 @@ with table_metrics_tab:
                 AND "FailureType" = 'Worn'
                 AND "RemedyType" = 'Replaced'
                 AND "WorkDescription" ILIKE '%UKP Bush%'
-                ORDER BY "AssetName", "ActualEndDateTime"
+                ORDER BY "ActualEndDateTime" DESC
             """
             reliability_df = duckdb.query(reliability_query).df()
 
-            st.markdown("##### 📄 Raw Change-Out Records")
+            st.markdown("##### 📄 Raw Change-Out Records (Latest First)")
             st.dataframe(
                 reliability_df,
                 use_container_width=True,
                 column_config={
                     'OrderDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
+                    'ActualStartDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
                     'ActualEndDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
                     'Duration': st.column_config.NumberColumn(format="%.2f hrs", min_value=0),
                     'DaysSinceLastChangeOut': st.column_config.NumberColumn(format="%d days", min_value=0)
@@ -1473,7 +1476,7 @@ with table_metrics_tab:
 
                 valid_df = reliability_df[reliability_df['DaysSinceLastChangeOut'].notnull()]
 
-                combined_df = valid_df.groupby('AssetName').agg(
+                combined_df = valid_df.groupby(['AssetName', 'AssetDescription']).agg(
                     ChangeOutCount=('Order', 'count'),
                     MTTR_Hrs=('Duration', 'mean'),
                     MTBF_Days=('DaysSinceLastChangeOut', 'mean'),
@@ -1503,7 +1506,7 @@ with table_metrics_tab:
         else:
             st.warning("No buoy bush change-out data for the selected filters.")
 
-    
+
     # Apply consistent styling
     st.markdown("""
         <style>
