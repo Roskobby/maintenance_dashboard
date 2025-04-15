@@ -102,6 +102,7 @@ with st.container():
             st.markdown('<div class="filter-container">', unsafe_allow_html=True)
             selected_months = st.multiselect("Select Month", month_options, default=default_months, key="month_filter")
             selected_years = st.multiselect("Select Year", year_options, default=default_years, key="year_filter")
+            selected_weeks = st.multiselect("Select Week of Year", week_options, default=default_weeks, key="week_filter")
             st.markdown('</div>', unsafe_allow_html=True)
     
     with col2:
@@ -116,7 +117,6 @@ with st.container():
             st.markdown('<div class="filter-container">', unsafe_allow_html=True)
             selected_work_priority = st.multiselect("Select Work Priority", work_priority_options, default=['All'], key="work_priority_filter")
             selected_locations = st.multiselect("Select Location", location_options, default=['All'], key="location_filter")
-            selected_weeks = st.multiselect("Select Week of Year", week_options, default=default_weeks, key="week_filter")
             st.markdown('</div>', unsafe_allow_html=True)
 
 # Apply Filters
@@ -311,14 +311,14 @@ def calculate_work_order_metrics(df):
     completion_rate = (completed / total * 100) if total > 0 else 0
 
     # Debug
-    st.write(f"KPI 14: Planned Hours = {planned_hours:.2f}, Corrective Hours = {corrective_hours:.2f}, Total Hours = {total_hours:.2f}, PMP = {pmp:.2f}%")
-    st.write(f"KPI 16: Planned Hours = {planned_hours_corrective:.2f}, Corrective Hours = {corrective_hours_corrective:.2f}, Corrective % = {corrective_pct:.2f}%")
-    st.write(f"KPI 16 Raw: Corrective % = {(corrective_hours_corrective / (planned_hours_corrective + corrective_hours_corrective) * 100) if (planned_hours_corrective + corrective_hours_corrective) > 0 else 0:.2f}%")
+    # st.write(f"KPI 14: Planned Hours = {planned_hours:.2f}, Corrective Hours = {corrective_hours:.2f}, Total Hours = {total_hours:.2f}, PMP = {pmp:.2f}%")
+    # st.write(f"KPI 16: Planned Hours = {planned_hours_corrective:.2f}, Corrective Hours = {corrective_hours_corrective:.2f}, Corrective % = {corrective_pct:.2f}%")
+    # st.write(f"KPI 16 Raw: Corrective % = {(corrective_hours_corrective / (planned_hours_corrective + corrective_hours_corrective) * 100) if (planned_hours_corrective + corrective_hours_corrective) > 0 else 0:.2f}%")
 
     # Validate hours
     expected_total = planned_hours + corrective_hours
     if abs(total_hours - expected_total) > 0.01:
-        st.warning(f"Total hours ({total_hours:.2f}) ≠ Planned + Corrective ({expected_total:.2f})")
+        #st.warning(f"Total hours ({total_hours:.2f}) ≠ Planned + Corrective ({expected_total:.2f})")
         worktype_query = """
         SELECT "WorkType", SUM(COALESCE("Duration", 0)) as hours
         FROM df
@@ -327,7 +327,7 @@ def calculate_work_order_metrics(df):
         AND "Duration" IS NOT NULL
         GROUP BY "WorkType"
         """
-        st.write("WorkType Breakdown:", duckdb.query(worktype_query).df())
+        # st.write("WorkType Breakdown:", duckdb.query(worktype_query).df())
 
     # Check for other WorkType values
     worktype_query = """
@@ -336,8 +336,8 @@ def calculate_work_order_metrics(df):
     WHERE "WorkType" NOT IN ('Planned Maint.', 'Planned Corrective Maint.', 'Planned Improvement', 'Inspection', 'Projects', 'Breakdown', 'Unplanned Corrective Maint.', 'Predictive Maint')
     """
     other_worktypes = duckdb.query(worktype_query).df()
-    if not other_worktypes.empty:
-        st.write(f"Debug: Other WorkType values found: {other_worktypes['WorkType'].tolist()}")
+    #if not other_worktypes.empty:
+        #st.write(f"Debug: Other WorkType values found: {other_worktypes['WorkType'].tolist()}")
 
     # Trend Data for PMP and Work Order Completion Rate (KPIs 17-18)
     pmp_trend = []
@@ -1336,6 +1336,34 @@ with table_metrics_tab:
             use_container_width=True
         )
     
+    # Work Orders by WorkType 
+    with st.expander("🛠️ Work Orders by WorkType"):
+        st.markdown("#### Work Order Distribution by WorkType")
+        if not filtered_df.empty:
+            worktype_query = """
+                SELECT 
+                    WorkType,
+                    COUNT(*) AS count,
+                    ROUND(SUM(Duration), 2) AS hours,
+                    ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) AS percentage
+                FROM filtered_df
+                WHERE WorkType IS NOT NULL
+                GROUP BY WorkType
+                ORDER BY count DESC
+            """
+            worktype_df = duckdb.query(worktype_query).df()
+            st.dataframe(
+                worktype_df,
+                use_container_width=True,
+                column_config={
+                    'count': st.column_config.NumberColumn(format="%d"),
+                    'hours': st.column_config.NumberColumn(format="%.2f hrs"),
+                    'percentage': st.column_config.NumberColumn(format="%.2f%%")
+                }
+            )
+        else:
+            st.write("No WorkType data for the selected filters.")
+        
     # Work Orders by SystemType 
     with st.expander("🛠️ Work Orders by SystemType"):
         st.markdown("#### Work Order Distribution by SystemType")
@@ -1381,7 +1409,7 @@ with table_metrics_tab:
         else:
             st.write("No WorkStatus data for the selected filters.")
     
-    # High-Priority Work Orders (unchanged)
+    # High-Priority Work Orders
     with st.expander("🚨 High-Priority Work Orders"):
         st.markdown("#### High-Priority (P1) Work Orders")
         if not filtered_df.empty:
