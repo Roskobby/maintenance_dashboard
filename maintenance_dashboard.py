@@ -14,17 +14,26 @@ def load_data():
     file_path = "Asset Work History.csv"
     df = pd.read_csv(file_path)
 
-    # Define date columns
-    date_cols = ['OrderDate', 'ReportedDate', 'RequiredByDate']
-    datetime_cols = ['ActualStartDateTime', 'ActualEndDateTime']
+    # Define date columns with specific formats
+    date_cols = {
+        'RequiredByDate': '%m/%d/%Y'
+    }
+    datetime_cols = {
+        'OrderDate': '%m/%d/%Y %H:%M',
+        'ReportedDate': '%m/%d/%Y %H:%M',  # Adjust if date-only
+        'ActualStartDateTime': '%m/%d/%Y %H:%M',
+        'ActualEndDateTime': '%m/%d/%Y %H:%M'
+    }
 
-    # Parse date columns with flexible formats
-    for col in date_cols:
-        df[col] = pd.to_datetime(df[col], errors='coerce')
+    # Parse date columns
+    for col, fmt in date_cols.items():
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], format=fmt, errors='coerce')
 
-    # Parse datetime columns with multiple possible formats
-    for col in datetime_cols:
-        df[col] = pd.to_datetime(df[col], errors='coerce')
+    # Parse datetime columns
+    for col, fmt in datetime_cols.items():
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], format=fmt, errors='coerce')
 
     # Replace 'P1', 'P2', 'P3' in WorkPriority
     df['WorkPriority'] = df['WorkPriority'].replace({'P1': 'P1 - High', 'P2': 'P2 - Medium', 'P3': 'P3 - Low'})
@@ -55,7 +64,7 @@ def load_data():
     df['Month Name'] = df['OrderDate'].dt.strftime('%B')
     df['Year'] = df['OrderDate'].dt.year
 
-    return df   
+    return df
 
 df = load_data()
 
@@ -140,7 +149,6 @@ if filtered_df.empty:
     st.warning("No data matches the selected filters. Please adjust your filter selections.")
     st.stop()
 
-# KPI Calculations
 def calculate_work_order_metrics(df):
     duckdb.register('df', df)
     
@@ -261,64 +269,78 @@ def calculate_work_order_metrics(df):
     avg_cycle_time = duckdb.query(avg_cycle_time_query).fetchone()[0] or 0
 
     # Percentage-Based Metrics (KPIs 13-16)
+    pm_compliance = 0.0
+    pmp = 0.0
+    corrective_pct = 0.0
+    completion_rate = 0.0
+
     pm_compliance_query = """
     SELECT 
         SUM(CASE WHEN "OnTimeStatus" = 'On Time' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0) as pm_compliance
     FROM df
     WHERE "WorkType" IN ('Planned Maint.', 'Planned Corrective Maint.', 'Planned Improvement', 'Inspection', 'Projects', 'Predictive Maint')
-    AND "RequiredByDate" IS NOT NULL
-    AND "WorkStatus" IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog')
-    AND "ActualEndDateTime" IS NOT NULL
+    AND COALESCE("RequiredByDate", "OrderDate") IS NOT NULL
+    AND "WorkStatus" NOT IN ('Cancelled')
     """
+    try:
+        result = duckdb.query(pm_compliance_query).fetchone()
+        pm_compliance = result[0] if result and result[0] is not None else 0.0
+    except Exception as e:
+        print(f"Error in pm_compliance query: {e}")
+
     pmp_query = """
     SELECT 
         SUM(CASE WHEN "WorkType" IN ('Planned Maint.', 'Planned Corrective Maint.', 'Planned Improvement', 'Inspection', 'Projects', 'Predictive Maint')
-                 THEN COALESCE("Duration", 0) ELSE 0 END) as planned_hours,
+                THEN COALESCE("Duration", 0) ELSE 0 END) as planned_hours,
         SUM(CASE WHEN "WorkType" IN ('Breakdown', 'Unplanned Corrective Maintenance')
-                 THEN COALESCE("Duration", 0) ELSE 0 END) as corrective_hours,
+                THEN COALESCE("Duration", 0) ELSE 0 END) as corrective_hours,
         SUM(COALESCE("Duration", 0)) as total_hours
     FROM df
     WHERE "ActualStartDateTime" IS NOT NULL AND "ActualEndDateTime" IS NOT NULL
     AND "WorkStatus" IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog')
     AND "Duration" IS NOT NULL
     """
+    try:
+        pmp_result = duckdb.query(pmp_query).fetchone()
+        planned_hours, corrective_hours, total_hours = pmp_result if pmp_result else (0, 0, 0)
+        pmp = (planned_hours / (planned_hours + corrective_hours) * 100) if (planned_hours + corrective_hours) > 0 else 0.0
+    except Exception as e:
+        print(f"Error in pmp query: {e}")
+
     corrective_pct_query = """
     SELECT 
         SUM(CASE WHEN "WorkType" IN ('Breakdown', 'Unplanned Corrective Maintenance')
-                 THEN COALESCE("Duration", 0) ELSE 0 END) as corrective_hours,
+                THEN COALESCE("Duration", 0) ELSE 0 END) as corrective_hours,
         SUM(CASE WHEN "WorkType" IN ('Planned Maint.', 'Planned Corrective Maint.', 'Planned Improvement', 'Inspection', 'Projects', 'Predictive Maint')
-                 THEN COALESCE("Duration", 0) ELSE 0 END) as planned_hours
+                THEN COALESCE("Duration", 0) ELSE 0 END) as planned_hours
     FROM df
     WHERE "ActualStartDateTime" IS NOT NULL AND "ActualEndDateTime" IS NOT NULL
     AND "WorkStatus" IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog')
     AND "Duration" IS NOT NULL
     """
+    try:
+        corrective_result = duckdb.query(corrective_pct_query).fetchone()
+        corrective_hours_corrective, planned_hours_corrective = corrective_result if corrective_result else (0, 0)
+        corrective_pct = (corrective_hours_corrective / (planned_hours_corrective + corrective_hours_corrective) * 100) if (planned_hours_corrective + corrective_hours_corrective) > 0 else 0.0
+    except Exception as e:
+        print(f"Error in corrective_pct query: {e}")
+
     completion_rate_query = """
     SELECT 
         SUM(CASE WHEN "WorkStatus" IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog') THEN 1 ELSE 0 END) as completed,
         COUNT(*) as total
     FROM df
     """
-    pm_compliance = duckdb.query(pm_compliance_query).fetchone()[0] or 0
-    pmp_result = duckdb.query(pmp_query).fetchone()
-    planned_hours, corrective_hours, total_hours = pmp_result or (0, 0, 0)
-    pmp = (planned_hours / (planned_hours + corrective_hours) * 100) if (planned_hours + corrective_hours) > 0 else 0
-    corrective_result = duckdb.query(corrective_pct_query).fetchone()
-    corrective_hours_corrective, planned_hours_corrective = corrective_result or (0, 0)
-    corrective_pct = (corrective_hours_corrective / (planned_hours_corrective + corrective_hours_corrective) * 100) if (planned_hours_corrective + corrective_hours_corrective) > 0 else 0
-    completion_result = duckdb.query(completion_rate_query).fetchone()
-    completed, total = completion_result
-    completion_rate = (completed / total * 100) if total > 0 else 0
-
-    # Debug
-    # st.write(f"KPI 14: Planned Hours = {planned_hours:.2f}, Corrective Hours = {corrective_hours:.2f}, Total Hours = {total_hours:.2f}, PMP = {pmp:.2f}%")
-    # st.write(f"KPI 16: Planned Hours = {planned_hours_corrective:.2f}, Corrective Hours = {corrective_hours_corrective:.2f}, Corrective % = {corrective_pct:.2f}%")
-    # st.write(f"KPI 16 Raw: Corrective % = {(corrective_hours_corrective / (planned_hours_corrective + corrective_hours_corrective) * 100) if (planned_hours_corrective + corrective_hours_corrective) > 0 else 0:.2f}%")
+    try:
+        completion_result = duckdb.query(completion_rate_query).fetchone()
+        completed, total = completion_result if completion_result else (0, 0)
+        completion_rate = (completed / total * 100) if total > 0 else 0.0
+    except Exception as e:
+        print(f"Error in completion_rate query: {e}")
 
     # Validate hours
     expected_total = planned_hours + corrective_hours
     if abs(total_hours - expected_total) > 0.01:
-        #st.warning(f"Total hours ({total_hours:.2f}) ≠ Planned + Corrective ({expected_total:.2f})")
         worktype_query = """
         SELECT "WorkType", SUM(COALESCE("Duration", 0)) as hours
         FROM df
@@ -327,7 +349,6 @@ def calculate_work_order_metrics(df):
         AND "Duration" IS NOT NULL
         GROUP BY "WorkType"
         """
-        # st.write("WorkType Breakdown:", duckdb.query(worktype_query).df())
 
     # Check for other WorkType values
     worktype_query = """
@@ -336,8 +357,6 @@ def calculate_work_order_metrics(df):
     WHERE "WorkType" NOT IN ('Planned Maint.', 'Planned Corrective Maint.', 'Planned Improvement', 'Inspection', 'Projects', 'Breakdown', 'Unplanned Corrective Maint.', 'Predictive Maint')
     """
     other_worktypes = duckdb.query(worktype_query).df()
-    #if not other_worktypes.empty:
-        #st.write(f"Debug: Other WorkType values found: {other_worktypes['WorkType'].tolist()}")
 
     # Trend Data for PMP and Work Order Completion Rate (KPIs 17-18)
     pmp_trend = []
@@ -358,7 +377,7 @@ def calculate_work_order_metrics(df):
         AND "ActualEndDateTime" BETWEEN ? AND ?
         """
         pmp_month_result = duckdb.query(pmp_month_query, params=[month_start, month_end]).fetchone()
-        planned_hours_month, total_hours_month = pmp_month_result
+        planned_hours_month, total_hours_month = pmp_month_result or (0, 0)
         total_hours_month = total_hours_month if total_hours_month is not None else 0
         pmp_month = (planned_hours_month / total_hours_month * 100) if total_hours_month > 0 else 0
         pmp_trend.append({'Month': month_label, 'PMP': pmp_month})
@@ -372,7 +391,7 @@ def calculate_work_order_metrics(df):
         AND "ActualEndDateTime" BETWEEN ? AND ?
         """
         completion_month_result = duckdb.query(completion_month_query, params=[month_start, month_end]).fetchone()
-        completed_month, total_month = completion_month_result
+        completed_month, total_month = completion_month_result or (0, 0)
         total_month = total_month if total_month is not None else 0
         completion_rate_month = (completed_month / total_month * 100) if total_month > 0 else 0
         completion_rate_trend.append({'Month': month_label, 'Completion Rate': completion_rate_month})
@@ -444,10 +463,8 @@ def calculate_work_order_metrics(df):
     expected_months = [(current_month - pd.offsets.MonthBegin(i)).strftime('%b %Y') for i in range(5, -1, -1)]
     monthly_wo_trend_df = pd.DataFrame(monthly_wo_trend)
     if not monthly_wo_trend_df.empty:
-        # Reindex to include all expected months
         monthly_wo_trend_df = monthly_wo_trend_df.set_index('Month').reindex(expected_months).fillna(0).reset_index()
     else:
-        # Create empty DataFrame with expected months
         monthly_wo_trend_df = pd.DataFrame({
             'Month': expected_months,
             'Total Work Orders': [0] * 6,
@@ -463,8 +480,16 @@ def calculate_work_order_metrics(df):
     AND "ActualEndDateTime" IS NOT NULL
     AND "WorkStatus" IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog')
     """
-    on_time_completion_pct = duckdb.query(on_time_completion_query).fetchone()[0] or 0
+    try:
+        on_time_completion_pct_result = duckdb.query(on_time_completion_query).fetchone()
+        on_time_completion_pct = on_time_completion_pct_result[0] if on_time_completion_pct_result and on_time_completion_pct_result[0] is not None else 0
+    except Exception as e:
+        print("Error in on_time_completion_query:", e)
+        on_time_completion_pct = 0
 
+
+    duckdb.unregister('df')
+    
     return {
         "open_wo_week": open_wo_week,
         "completed_wo_week": completed_wo_week,
@@ -869,57 +894,6 @@ with dashboard_tab:
 
     col1, col2, col3 = st.columns(3)
 
-    # Compliance Trends (KPI 22)
-    st.markdown("### 📈 Compliance Trends", unsafe_allow_html=True)
-    if not filtered_df.empty and 'ParentLocation' in filtered_df:
-        compliance_query = """
-        SELECT "ParentLocation",
-            SUM(CASE WHEN "OnTimeStatus" = 'On Time' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as pm_compliance
-        FROM df
-        WHERE "WorkType" IN ('Planned Maint.', 'Planned Corrective Maint.', 'Planned Improvement', 'Inspection', 'Projects', 'Predictive Maint')
-        AND "OnTimeStatus" IS NOT NULL
-        AND "RequiredByDate" IS NOT NULL
-        AND "WorkStatus" IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog')
-        AND "ActualEndDateTime" IS NOT NULL
-        GROUP BY "ParentLocation"
-        """
-        location_compliance = duckdb.query(compliance_query).df()
-        
-        # Sort by compliance in descending order for tallest to shortest
-        location_compliance = location_compliance.sort_values('pm_compliance', ascending=False)
-        
-        fig_compliance = go.Figure()
-        fig_compliance.add_trace(
-            go.Bar(
-                x=location_compliance['ParentLocation'],
-                y=location_compliance['pm_compliance'],
-                marker_color=px.colors.qualitative.Pastel1[:len(location_compliance)]  # Use Pastel1 colors
-            )
-        )
-        fig_compliance.add_shape(
-            type="line",
-            x0=-0.5,
-            x1=len(location_compliance)-0.5,
-            y0=80,
-            y1=80,
-            line=dict(color="red", width=2, dash="dash")
-        )
-        fig_compliance.update_layout(
-            title="PM Compliance by Location",
-            xaxis_title="Location",
-            yaxis_title="Compliance (%)",
-            yaxis_range=[0, 100],
-            showlegend=False,
-            margin=dict(l=40, r=40, t=40, b=40),
-            font=dict(size=14, color="white"),
-            plot_bgcolor='rgba(0, 0, 0, 0)',
-            paper_bgcolor='rgba(0, 0, 0, 0)',
-            bargap=0,
-            bargroupgap=0.1
-        )
-        st.plotly_chart(fig_compliance, use_container_width=True)
-
-
     # KPI 23: PMP vs. Corrective Maintenance
     with col1:
         st.subheader("PMP vs. Corrective Maintenance")
@@ -1031,6 +1005,88 @@ with dashboard_tab:
             paper_bgcolor='rgba(0, 0, 0, 0)'
         )
         st.plotly_chart(fig_gauge, use_container_width=True)
+
+    # Compliance Trends KPI 22  
+    st.markdown("### 📈 Compliance Trends", unsafe_allow_html=True)
+
+    if not filtered_df.empty and 'ParentLocation' in filtered_df:
+
+        # Step 1: Fill missing RequiredByDate with end of OrderDate week
+        filtered_df['RequiredByDate'] = filtered_df.apply(
+            lambda x: x['OrderDate'] + pd.Timedelta(days=(6 - x['OrderDate'].weekday()))
+            if pd.isnull(x['RequiredByDate']) and pd.notnull(x['OrderDate']) else x['RequiredByDate'],
+            axis=1
+        )
+
+        duckdb.register('filtered_df', filtered_df)
+
+        # Step 2: Compliance Query with adjusted RequiredByDate and excluding Cancelled PMs
+        compliance_query = """
+            SELECT 
+                "ParentLocation",
+                SUM(CASE 
+                    WHEN "OnTimeStatus" = 'On Time' 
+                        AND "WorkStatus" IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog') 
+                    THEN 1 ELSE 0 
+                END) * 100.0
+                / NULLIF(COUNT(*), 0) AS pm_compliance
+            FROM filtered_df
+            WHERE "WorkType" IN (
+                'Planned Maint.', 
+                'Planned Corrective Maint.', 
+                'Planned Improvement', 
+                'Inspection', 
+                'Projects', 
+                'Predictive Maint'
+            )
+            AND "RequiredByDate" IS NOT NULL
+            AND "RequiredByDate" <= CURRENT_DATE
+            AND "WorkStatus" != 'Cancelled'
+            GROUP BY "ParentLocation"
+        """ 
+
+        location_compliance = duckdb.query(compliance_query).df().fillna(0)
+
+        if not location_compliance.empty:
+            location_compliance = location_compliance.sort_values('pm_compliance', ascending=False)
+
+            fig = go.Figure()
+            fig.add_trace(go.Bar(
+                x=location_compliance['ParentLocation'],
+                y=location_compliance['pm_compliance'],
+                marker_color=px.colors.qualitative.Pastel1[:len(location_compliance)],
+                name="PM Compliance (%)"
+            ))
+            fig.add_shape(
+                type="line",
+                x0=-0.5,
+                x1=len(location_compliance) - 0.5,
+                y0=80,
+                y1=80,
+                line=dict(color="red", width=2, dash="dash")
+            )
+            fig.update_layout(
+                title="PM Compliance by Location (Scheduled PMs Due by Today)",
+                xaxis_title="Location",
+                yaxis_title="Compliance (%)",
+                yaxis=dict(range=[0, 100]),
+                showlegend=False,
+                margin=dict(l=40, r=40, t=40, b=40),
+                font=dict(size=14, color="white"),
+                plot_bgcolor='rgba(0, 0, 0, 0)',
+                paper_bgcolor='rgba(0, 0, 0, 0)',
+                bargap=0.15
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No PM compliance data based on the selected filters.")
+
+        duckdb.unregister('filtered_df')
+
+    else:
+        st.warning("No data available for compliance trends under current filters.")
+
+
 
     # Pareto Charts (KPIs 26-28)
     st.markdown("### 📊 Pareto Analysis", unsafe_allow_html=True)
@@ -1170,33 +1226,82 @@ with dashboard_tab:
 # -----------------------------------------
 # Table Metrics Tab
 # -----------------------------------------
+# PM Compliance by Location (Table Metrics Section)
 with table_metrics_tab:
     st.markdown("### 📋 Table Metrics", unsafe_allow_html=True)
-    
-    # Open Orders (unchanged)
-    with st.expander("📅 Open Work Orders"):
-        st.markdown("#### Open Work Orders")
-        if not filtered_df.empty:
-            display_df = filtered_df[
-                filtered_df['WorkStatus'].isin(['Open', 'Backlog', 'In Progress', 'Waiting for Approval'])
-            ][[
-                'OrderDate', 'Order', 'AssetName', 'WorkDescription', 'RequiredByDate', 
-                'ActualStartDateTime', 'ActualEndDateTime', 'Duration', 
-                'WorkType', 'SystemType', 'WorkStatus', 'WorkPriority'
-            ]].sort_values('OrderDate', ascending=False)
-            st.dataframe(
-                display_df,
-                use_container_width=True,
-                column_config={
-                    'OrderDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
-                    'RequiredByDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
-                    'ActualStartDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
-                    'ActualEndDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
-                    'Duration': st.column_config.NumberColumn(format="%.2f hrs", min_value=0)
-                }
-            )
+
+    # PM Compliance by Location
+    with st.expander("📊 PM Compliance by Location"):
+        st.markdown("#### PM Compliance by Location")
+
+        # Define dynamic date ranges (independent of filters)
+        current_date = pd.to_datetime(datetime.now())  # Dynamic current date
+        current_year = current_date.year
+        current_week = current_date.isocalendar().week
+        prev_week = current_week - 1
+
+        if prev_week <= 0:
+            prev_year = current_year - 1
+            prev_week = pd.to_datetime(f'{prev_year}-12-31').isocalendar().week
         else:
-            st.write("No open work orders for the selected filters.")
+            prev_year = current_year
+
+        current_month_start = current_date.replace(day=1)
+        ytd_start = current_date.replace(month=1, day=1)
+
+        duckdb.register('full_df', df)
+
+        # Update PM Compliance queries to exclude Cancelled
+        base_query_prev_week = """
+            SELECT 
+                "ParentLocation",
+                SUM(CASE WHEN "OnTimeStatus" = 'On Time' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0) AS pm_compliance
+            FROM full_df
+            WHERE "WorkType" IN ('Planned Maint.', 'Planned Corrective Maint.', 'Planned Improvement', 'Inspection', 'Projects', 'Predictive Maint')
+            AND COALESCE("RequiredByDate", "OrderDate") IS NOT NULL
+            AND "WorkStatus" NOT IN ('Cancelled')
+            AND EXTRACT(WEEK FROM COALESCE("RequiredByDate", "OrderDate")) = ?
+            AND EXTRACT(YEAR FROM COALESCE("RequiredByDate", "OrderDate")) = ?
+            GROUP BY "ParentLocation"
+        """
+
+        base_query_date_range = """
+            SELECT 
+                "ParentLocation",
+                SUM(CASE WHEN "OnTimeStatus" = 'On Time' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0) AS pm_compliance
+            FROM full_df
+            WHERE "WorkType" IN ('Planned Maint.', 'Planned Corrective Maint.', 'Planned Improvement', 'Inspection', 'Projects', 'Predictive Maint')
+            AND COALESCE("RequiredByDate", "OrderDate") IS NOT NULL
+            AND "WorkStatus" NOT IN ('Cancelled')
+            AND COALESCE("RequiredByDate", "OrderDate") BETWEEN ? AND ?
+            GROUP BY "ParentLocation"
+        """
+
+        prev_week_df = duckdb.query(base_query_prev_week, params=[prev_week, prev_year]).df()
+        prev_week_df = prev_week_df.rename(columns={'pm_compliance': 'Previous Week Compliance (%)'})
+
+        curr_month_df = duckdb.query(base_query_date_range, params=[current_month_start, current_date]).df()
+        curr_month_df = curr_month_df.rename(columns={'pm_compliance': 'Current Month Compliance (%)'})
+
+        ytd_df = duckdb.query(base_query_date_range, params=[ytd_start, current_date]).df()
+        ytd_df = ytd_df.rename(columns={'pm_compliance': 'YTD Compliance (%)'})
+
+        compliance_df = prev_week_df[['ParentLocation', 'Previous Week Compliance (%)']] \
+            .merge(curr_month_df[['ParentLocation', 'Current Month Compliance (%)']], on='ParentLocation', how='outer') \
+            .merge(ytd_df[['ParentLocation', 'YTD Compliance (%)']], on='ParentLocation', how='outer')
+        compliance_df = compliance_df.fillna(0.00)
+        compliance_df = compliance_df.sort_values('ParentLocation')
+
+        if not compliance_df.empty:
+            st.dataframe(compliance_df, use_container_width=True, column_config={
+                'Previous Week Compliance (%)': st.column_config.NumberColumn(format="%.2f%%", min_value=0, max_value=100),
+                'Current Month Compliance (%)': st.column_config.NumberColumn(format="%.2f%%", min_value=0, max_value=100),
+                'YTD Compliance (%)': st.column_config.NumberColumn(format="%.2f%%", min_value=0, max_value=100)
+            })
+        else:
+            st.write("No PM compliance data for the selected periods.")
+
+        duckdb.unregister('full_df')
     
     # Completed/Closed Work Orders (unchanged)
     with st.expander("✅ Completed/Closed Work Orders"):
