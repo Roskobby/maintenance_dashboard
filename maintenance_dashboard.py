@@ -1,3 +1,6 @@
+# -----------------------------------------
+# Imports and Configuration
+# -----------------------------------------
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -8,42 +11,56 @@ import numpy as np
 
 st.set_page_config(page_title="Maintenance Dashboard", page_icon=":bar_chart:", layout="wide")
 
-# Load Data
+# -----------------------------------------
+# Constants and Helper Functions
+# -----------------------------------------
+# Constants
+DATE_COLS = {'RequiredByDate': '%m/%d/%Y'}
+DATETIME_COLS = {
+    'OrderDate': '%m/%d/%Y %H:%M',
+    'ReportedDate': '%m/%d/%Y %H:%M',
+    'ActualStartDateTime': '%m/%d/%Y %H:%M',
+    'ActualEndDateTime': '%m/%d/%Y %H:%M'
+}
+WORK_STATUSES_COMPLETED = ['Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog']
+
+# Helper function to parse dates
+def parse_dates(df, date_columns):
+    for col, fmt in date_columns.items():
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], format=fmt, errors='coerce')
+
+# Helper function to calculate duration
+def calculate_duration(row):
+    if pd.notnull(row['ActualStartDateTime']) and pd.notnull(row['ActualEndDateTime']):
+        return (row['ActualEndDateTime'] - row['ActualStartDateTime']).total_seconds() / 3600
+    return None
+
+# -----------------------------------------
+# Data Loading and Preprocessing
+# -----------------------------------------
 @st.cache_data
 def load_data():
     file_path = "Asset Work History.csv"
-    df = pd.read_csv(file_path)
+    try:
+        df = pd.read_csv(file_path)
+    except FileNotFoundError:
+        st.error(f"File not found: {file_path}")
+        return pd.DataFrame()
 
-    # Define date columns with specific formats
-    date_cols = {
-        'RequiredByDate': '%m/%d/%Y'
-    }
-    datetime_cols = {
-        'OrderDate': '%m/%d/%Y %H:%M',
-        'ReportedDate': '%m/%d/%Y %H:%M',  # Adjust if date-only
-        'ActualStartDateTime': '%m/%d/%Y %H:%M',
-        'ActualEndDateTime': '%m/%d/%Y %H:%M'
-    }
+    # Parse date and datetime columns
+    parse_dates(df, DATE_COLS)
+    parse_dates(df, DATETIME_COLS)
 
-    # Parse date columns
-    for col, fmt in date_cols.items():
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], format=fmt, errors='coerce')
-
-    # Parse datetime columns
-    for col, fmt in datetime_cols.items():
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], format=fmt, errors='coerce')
-
-    # Replace 'P1', 'P2', 'P3' in WorkPriority
+    # Replace priority codes
     df['WorkPriority'] = df['WorkPriority'].replace({'P1': 'P1 - High', 'P2': 'P2 - Medium', 'P3': 'P3 - Low'})
 
-    # Calculate Duration only for completed orders
-    df['Duration'] = df.apply(
-        lambda x: (x['ActualEndDateTime'] - x['ActualStartDateTime']).total_seconds() / 3600
-        if pd.notnull(x['ActualStartDateTime']) and pd.notnull(x['ActualEndDateTime'])
-        else None,
-        axis=1
+    # Calculate Duration
+    df['Duration'] = df.apply(calculate_duration, axis=1)
+
+    # Fill missing RequiredByDate
+    df['RequiredByDate'] = df['RequiredByDate'].combine_first(
+        df['OrderDate'] + pd.to_timedelta(6 - df['OrderDate'].dt.weekday, unit='D')
     )
 
     # Calculate RequiredByDateEnd
@@ -51,29 +68,33 @@ def load_data():
 
     # Calculate OnTimeStatus
     df['OnTimeStatus'] = np.where(
-        (df['ActualEndDateTime'].notna()) & (df['RequiredByDateEnd'].notna()),
+        (df['WorkStatus'].isin(WORK_STATUSES_COMPLETED)) &
+        (df['ActualEndDateTime'].notna()) &
+        (df['RequiredByDateEnd'].notna()),
         np.where(df['ActualEndDateTime'] <= df['RequiredByDateEnd'], 'On Time', 'Late'),
         'Unknown'
     )
 
-    # Week of the Year
+    # Week of the Year for filtering
     reference_date = df['RequiredByDate'].combine_first(df['OrderDate']).combine_first(df['ActualEndDateTime'])
     df['WeekOfYear'] = reference_date.dt.isocalendar().week
 
-    # Derive Month Name and Year for filters
+    # Month and Year for filtering
     df['Month Name'] = df['OrderDate'].dt.strftime('%B')
     df['Year'] = df['OrderDate'].dt.year
 
     return df
 
+
 df = load_data()
 
-# Current date
+# -----------------------------------------
+# Current Date and Dashboard Header
+# -----------------------------------------
 current_date = pd.to_datetime(datetime.now().date())
 current_date_end = current_date + pd.Timedelta(hours=23, minutes=59, seconds=59)
 st.write(f"Current date set to: {current_date}")
 
-# Dashboard Filters
 st.markdown(
     """
     <div style='text-align: center;'>
@@ -83,6 +104,9 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+# -----------------------------------------
+# Dashboard Filters
+# -----------------------------------------
 with st.container():
     # Define filter options
     month_options = ['All'] + sorted(df['Month Name'].dropna().unique(), key=lambda x: pd.to_datetime(x, format='%B').month)
@@ -128,7 +152,9 @@ with st.container():
             selected_locations = st.multiselect("Select Location", location_options, default=['All'], key="location_filter")
             st.markdown('</div>', unsafe_allow_html=True)
 
-# Apply Filters
+# -----------------------------------------
+# Apply Filters to Data
+# -----------------------------------------
 filtered_df = df.copy()
 if selected_months and 'All' not in selected_months:
     filtered_df = filtered_df[filtered_df['Month Name'].isin(selected_months)]
@@ -149,10 +175,13 @@ if filtered_df.empty:
     st.warning("No data matches the selected filters. Please adjust your filter selections.")
     st.stop()
 
+# -----------------------------------------
+# Metrics Calculation
+# -----------------------------------------
 def calculate_work_order_metrics(df):
     duckdb.register('df', df)
     
-    # Weekly Metrics (KPIs 1-4)
+    # Weekly Metrics (KPIs 1-3)
     current_week_start = current_date - pd.to_timedelta(current_date.weekday(), unit='D')
     current_week_end = current_week_start + pd.to_timedelta(6, unit='D')
     current_open_wo_week_query = """
@@ -195,7 +224,7 @@ def calculate_work_order_metrics(df):
         pd.to_datetime(f"{current_date.year}-01-01"), current_date
     ]).fetchone()[0] or 0
 
-    # High-Level Counts (KPIs 5-9)
+    # High-Level Counts (KPIs 4-8)
     total_wo = len(df)  # Total work orders in filtered dataset
     open_wo_query = """
     SELECT COUNT(*) as open_wo
@@ -243,32 +272,7 @@ def calculate_work_order_metrics(df):
         current_date
     ]).fetchone()[0] or 0
 
-    # Time-Based Metrics (KPIs 10-12)
-    avg_aging_query = """
-    SELECT AVG(DATEDIFF('day', "OrderDate", CAST(? AS DATE))) as avg_aging
-    FROM df
-    WHERE "WorkStatus" NOT IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Cancelled')
-    AND "OrderDate" IS NOT NULL
-    """
-    avg_pm_backlog_aging_query = """
-    SELECT AVG(DATEDIFF('day', "RequiredByDate", "ActualEndDateTime")) as avg_pm_backlog_aging
-    FROM df
-    WHERE "WorkType" IN ('Planned Maint.', 'Planned Corrective Maint.', 'Planned Improvement', 'Inspection', 'Projects', 'Predictive Maint')
-    AND "OnTimeStatus" = 'Late'
-    AND "WorkStatus" IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog')
-    AND "ActualEndDateTime" IS NOT NULL AND "RequiredByDate" IS NOT NULL
-    """
-    avg_cycle_time_query = """
-    SELECT AVG(DATEDIFF('day', "ActualStartDateTime", "ActualEndDateTime")) as avg_cycle_time
-    FROM df 
-    WHERE "WorkStatus" IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog')
-    AND "ActualStartDateTime" IS NOT NULL AND "ActualEndDateTime" IS NOT NULL
-    """
-    avg_aging = duckdb.query(avg_aging_query, params=[current_date]).fetchone()[0] or 0
-    avg_pm_backlog_aging = duckdb.query(avg_pm_backlog_aging_query).fetchone()[0] or 0
-    avg_cycle_time = duckdb.query(avg_cycle_time_query).fetchone()[0] or 0
-
-    # Percentage-Based Metrics (KPIs 13-16)
+    # Percentage-Based Metrics (KPIs 11-13)
     pm_compliance = 0.0
     pmp = 0.0
     corrective_pct = 0.0
@@ -358,7 +362,7 @@ def calculate_work_order_metrics(df):
     """
     other_worktypes = duckdb.query(worktype_query).df()
 
-    # Trend Data for PMP and Work Order Completion Rate (KPIs 17-18)
+    # Trend Data for PMP and Work Order Completion Rate (KPIs 14-15)
     pmp_trend = []
     completion_rate_trend = []
     for i in range(11, -1, -1):
@@ -471,7 +475,7 @@ def calculate_work_order_metrics(df):
             'Completed Work Orders': [0] * 6
         })
 
-    # Work Order On-Time Completion Percentage
+    # Work Order On-Time Completion Percentage (KPI 16)
     on_time_completion_query = """
     SELECT 
         SUM(CASE WHEN "OnTimeStatus" = 'On Time' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0) as on_time_completion_pct
@@ -503,9 +507,6 @@ def calculate_work_order_metrics(df):
         "backlog_count_total": backlog_count_total,
         "backlog_count_ytd": backlog_count_ytd,
         "emergency_ytd": emergency_ytd,
-        "avg_aging": avg_aging,
-        "avg_pm_backlog_aging": avg_pm_backlog_aging,
-        "avg_cycle_time": avg_cycle_time,
         "pm_compliance": pm_compliance,
         "pmp": pmp,
         "corrective_pct": corrective_pct,
@@ -520,7 +521,9 @@ def calculate_work_order_metrics(df):
 metrics = calculate_work_order_metrics(filtered_df)
 project_in_focus_result = metrics["project_in_focus_result"]
 
+# -----------------------------------------
 # CSS Styles
+# -----------------------------------------
 st.markdown("""
     <style>
     .card {
@@ -571,12 +574,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -----------------------------------------
-# Create Tabs for Dashboard and Table Metrics
+# Dashboard Tabs
 # -----------------------------------------
 dashboard_tab, table_metrics_tab = st.tabs(["Dashboard", "Table Metrics"])
 
 with dashboard_tab:
-    # Weekly Metrics (KPIs 1-4)
+    # Weekly Metrics (KPIs 1-3)
     st.markdown("### 📅 Weekly Metrics", unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
 
@@ -584,7 +587,7 @@ with dashboard_tab:
         st.markdown(
             """
             <div class="metric-container">
-                <p class="metric-label">CURRENT OPEN WORK ORDERS<span class="info-icon" title="Total number of current open work orders.">ⓘ</span></p>
+                <p class="metric-label">KPI 1: CURRENT OPEN WORK ORDERS<span class="info-icon" title="Total number of current open work orders.">ⓘ</span></p>
                 <p class="metric-value">{:,}</p>
             </div>
             """.format(metrics["open_wo_week"]),
@@ -595,7 +598,7 @@ with dashboard_tab:
         st.markdown(
             """
             <div class="metric-container">
-                <p class="metric-label">COMPLETED WORK ORDERS FOR WEEK <span class="info-icon" title="Number of work orders completed during the current week.">ⓘ</span></p>
+                <p class="metric-label">KPI 2: COMPLETED WORK ORDERS FOR WEEK <span class="info-icon" title="Number of work orders completed during the current week.">ⓘ</span></p>
                 <p class="metric-value">{:,}</p>
             </div>
             """.format(metrics["completed_wo_week"]),
@@ -606,14 +609,14 @@ with dashboard_tab:
         st.markdown(
             """
             <div class="metric-container">
-                <p class="metric-label">WORK ORDERS IN PROGRESS <span class="info-icon" title="Number of work orders in progress">ⓘ</span></p>
+                <p class="metric-label">KPI 3: WORK ORDERS IN PROGRESS <span class="info-icon" title="Number of work orders in progress">ⓘ</span></p>
                 <p class="metric-value">{:,}</p>
             </div>
             """.format(metrics["in_progress_wo_week"]),
             unsafe_allow_html=True
         )
 
-    # High-Level Metrics (KPIs 5-9)
+    # High-Level Metrics (KPIs 4-8)
     st.markdown("### 📊 High-Level Metrics", unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
 
@@ -621,7 +624,7 @@ with dashboard_tab:
         st.markdown(
             """
             <div class="metric-container">
-                <p class="metric-label">TOTAL WORK ORDERS (FILTERED) <span class="info-icon" title="Total number of work orders in the filtered dataset.">ⓘ</span></p>
+                <p class="metric-label">KPI 4: TOTAL WORK ORDERS (FILTERED) <span class="info-icon" title="Total number of work orders in the filtered dataset.">ⓘ</span></p>
                 <p class="metric-value">{:,}</p>
             </div>
             """.format(metrics["total_wo"]),
@@ -632,7 +635,7 @@ with dashboard_tab:
         st.markdown(
             """
             <div class="metric-container">
-                <p class="metric-label">COMPLETED WORK ORDERS (FILTERED) <span class="info-icon" title="Number of completed or closed work orders in the filtered dataset.">ⓘ</span></p>
+                <p class="metric-label">KPI 5: COMPLETED WORK ORDERS (FILTERED) <span class="info-icon" title="Number of completed or closed work orders in the filtered dataset.">ⓘ</span></p>
                 <p class="metric-value">{:,}</p>
             </div>
             """.format(metrics["completed_wo"]),
@@ -643,7 +646,7 @@ with dashboard_tab:
         st.markdown(
             """
             <div class="metric-container">
-                <p class="metric-label">EMERGENCY MAINTENANCE YTD (FILTERED) <span class="info-icon" title="Number of breakdown maintenance work orders completed year to date in the filtered dataset.">ⓘ</span></p>
+                <p class="metric-label">KPI 6: EMERGENCY MAINTENANCE YTD (FILTERED) <span class="info-icon" title="Number of breakdown maintenance work orders completed year to date in the filtered dataset.">ⓘ</span></p>
                 <p class="metric-value">{:,}</p>
             </div>
             """.format(metrics["emergency_ytd"]),
@@ -656,7 +659,7 @@ with dashboard_tab:
         st.markdown(
             """
             <div class="metric-container">
-                <p class="metric-label">BACKLOG COUNT YTD <span class="info-icon" title="Number of overdue work orders from this calendar year.">ⓘ</span></p>
+                <p class="metric-label">KPI 7: BACKLOG COUNT YTD <span class="info-icon" title="Number of overdue work orders from this calendar year.">ⓘ</span></p>
                 <p class="metric-value">{:,}</p>
             </div>
             """.format(metrics["backlog_count_ytd"]),
@@ -667,7 +670,7 @@ with dashboard_tab:
         st.markdown(
             """
             <div class="metric-container">
-                <p class="metric-label">BACKLOG COUNT TOTAL <span class="info-icon" title="Total number of overdue work orders across all years.">ⓘ</span></p>
+                <p class="metric-label">KPI 8: BACKLOG COUNT TOTAL <span class="info-icon" title="Total number of overdue work orders across all years.">ⓘ</span></p>
                 <p class="metric-value">{:,}</p>
             </div>
             """.format(metrics["backlog_count_total"]),
@@ -677,7 +680,7 @@ with dashboard_tab:
     with col3:
         st.markdown(" ", unsafe_allow_html=True)  # Spacer
 
-    # Time-Based / Project Metrics (KPIs 10-12, 13-14)
+    # Project Metrics (KPIs 9-10, 11-12)
     st.markdown("### ⏱️ Time-Based / Project Metrics", unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
 
@@ -685,42 +688,7 @@ with dashboard_tab:
         st.markdown(
             """
             <div class="metric-container">
-                <p class="metric-label">AVERAGE AGING (DAYS) <span class="info-icon" title="Average age of open work orders in days (filtered dataset).">ⓘ</span></p>
-                <p class="metric-value">{:.2f}</p>
-            </div>
-            """.format(round(metrics["avg_aging"], 2)),
-            unsafe_allow_html=True
-        )
-
-    with col2:
-        st.markdown(
-            """
-            <div class="metric-container">
-                <p class="metric-label">AVERAGE PM BACKLOG AGING (DAYS) <span class="info-icon" title="Average days past due for planned maintenance work orders (filtered dataset).">ⓘ</span></p>
-                <p class="metric-value">{:.2f}</p>
-            </div>
-            """.format(round(metrics["avg_pm_backlog_aging"], 2)),
-            unsafe_allow_html=True
-        )
-
-    with col3:
-        st.markdown(
-            """
-            <div class="metric-container">
-                <p class="metric-label">AVERAGE CYCLE TIME (DAYS) <span class="info-icon" title="Average time to complete work orders in days (filtered dataset).">ⓘ</span></p>
-                <p class="metric-value">{:.2f}</p>
-            </div>
-            """.format(round(metrics["avg_cycle_time"], 2)),
-            unsafe_allow_html=True
-        )
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.markdown(
-            """
-            <div class="metric-container">
-                <p class="metric-label">PROJECTS IN PROGRESS <span class="info-icon" title="Number of active 'Projects' work orders.">ⓘ</span></p>
+                <p class="metric-label">KPI 9: PROJECTS IN PROGRESS <span class="info-icon" title="Number of active 'Projects' work orders.">ⓘ</span></p>
                 <p class="metric-value">{:,}</p>
             </div>
             """.format(metrics["project_in_progress_count"]),
@@ -731,7 +699,7 @@ with dashboard_tab:
         st.markdown(
             """
             <div class="metric-container">
-                <p class="metric-label">TOTAL PROJECTS YTD <span class="info-icon" title="Total number of 'Projects' completed since Jan 1 this year.">ⓘ</span></p>
+                <p class="metric-label">KPI 10: TOTAL PROJECTS YTD <span class="info-icon" title="Total number of 'Projects' completed since Jan 1 this year.">ⓘ</span></p>
                 <p class="metric-value">{:,}</p>
             </div>
             """.format(metrics["total_projects_ytd"]),
@@ -746,7 +714,7 @@ with dashboard_tab:
         st.markdown("#### 📋 Projects in Progress List")
         st.dataframe(project_in_focus_result)
 
-    # Percentage-Based Metrics (KPIs 13-16)
+    # Percentage-Based Metrics (KPIs 11-13)
     st.markdown("### 📏 Performance Metrics", unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
 
@@ -754,59 +722,49 @@ with dashboard_tab:
         st.markdown(
             """
             <div class="metric-container">
-                <p class="metric-label">PM COMPLIANCE (%) <span class="info-icon" title="Percentage of planned maintenance work orders completed on or before their due date (filtered dataset).">ⓘ</span></p>
-                <p class="metric-value">{:.2f}</p>
-            </div>
-            """.format(round(metrics["pm_compliance"], 1)),
-            unsafe_allow_html=True
-        )
-
-    with col2:
-        st.markdown(
-            """
-            <div class="metric-container">
-                <p class="metric-label">PLANNED MAINTENANCE PERCENTAGE (PMP) <span class="info-icon" title="Percentage of maintenance hours spent on planned activities (benchmark: 85% or higher) (filtered dataset).">ⓘ</span></p>
+                <p class="metric-label">KPI 11: PLANNED MAINTENANCE PERCENTAGE (PMP) <span class="info-icon" title="Percentage of maintenance hours spent on planned activities (benchmark: 85% or higher) (filtered dataset).">ⓘ</span></p>
                 <p class="metric-value">{:.2f}</p>
             </div>
             """.format(metrics["pmp"]),
             unsafe_allow_html=True
         )
 
-    with col3:
+    with col2:
         st.markdown(
             """
             <div class="metric-container">
-                <p class="metric-label">CORRECTIVE MAINTENANCE PERCENTAGE <span class="info-icon" title="Percentage of maintenance hours spent on corrective (breakdown or unplanned) activities (filtered dataset).">ⓘ</span></p>
+                <p class="metric-label">KPI 12: CORRECTIVE MAINTENANCE PERCENTAGE <span class="info-icon" title="Percentage of maintenance hours spent on corrective (breakdown or unplanned) activities (filtered dataset).">ⓘ</span></p>
                 <p class="metric-value">{:.2f}</p>
             </div>
             """.format(metrics["corrective_pct"]),
             unsafe_allow_html=True
         )
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
+        
+    with col3:
         st.markdown(
             """
             <div class="metric-container">
-                <p class="metric-label">WORK ORDER COMPLETION RATE (%) <span class="info-icon" title="Percentage of work orders completed out of total work orders (benchmark: 90% or higher) (filtered dataset).">ⓘ</span></p>
+                <p class="metric-label">KPI 13: WORK ORDER COMPLETION RATE (%) <span class="info-icon" title="Percentage of work orders completed out of total work orders (benchmark: 90% or higher) (filtered dataset).">ⓘ</span></p>
                 <p class="metric-value">{:.2f}</p>
             </div>
             """.format(round(metrics["completion_rate"], 1)),
             unsafe_allow_html=True
         )
 
+    col1, col2, col3 = st.columns(3)
+
+
+    with col1:
+        st.markdown(" ", unsafe_allow_html=True)  # Spacer
+
     with col2:
         st.markdown(" ", unsafe_allow_html=True)  # Spacer
 
-    with col3:
-        st.markdown(" ", unsafe_allow_html=True)  # Spacer
-
-    # Work Order Visualizations (KPIs 19-25)
+    # Work Order Visualizations (KPIs 14-16)
     st.markdown("### 📊 Work Order Visualizations", unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
 
-    # KPI 19: Work Orders by Location
+    # KPI 14: Work Orders by Location
     with col1:
         if not filtered_df.empty and 'ParentLocation' in filtered_df:
             location_query = """
@@ -837,7 +795,7 @@ with dashboard_tab:
             )
             st.plotly_chart(fig_location, use_container_width=True)
 
-    # KPI 20: Work Orders by Priority Level
+    # KPI 15: Work Orders by Priority Level
     with col2:
         if not filtered_df.empty and 'WorkPriority' in filtered_df:
             priority_query = """
@@ -860,7 +818,7 @@ with dashboard_tab:
                 xaxis_title="Priority Level",
                 yaxis_title="Work Order Count",
                 margin=dict(l=40, r=40, t=40, b=40),
-                font=dict(size=14, color="green"),
+                font=dict(size=14, color="white"),
                 plot_bgcolor='rgba(0, 0, 0, 0)',
                 paper_bgcolor='rgba(0, 0, 0, 0)',
                 bargap=0,
@@ -868,7 +826,7 @@ with dashboard_tab:
             )
             st.plotly_chart(fig_priority, use_container_width=True)
 
-    # KPI 21: Percentage of Work Orders by Work Type
+    # KPI 16: Percentage of Work Orders by Work Type
     with col3:
         if not filtered_df.empty and 'WorkType' in filtered_df:
             work_type_query = """
@@ -894,7 +852,7 @@ with dashboard_tab:
 
     col1, col2, col3 = st.columns(3)
 
-    # KPI 23: PMP vs. Corrective Maintenance
+    # KPI 17: PMP vs. Corrective Maintenance
     with col1:
         st.subheader("PMP vs. Corrective Maintenance")
         pmp_vs_corrective_query = """
@@ -940,7 +898,7 @@ with dashboard_tab:
         )
         st.plotly_chart(fig, use_container_width=True)
 
-    # KPI 24: Monthly Work Order Trends
+    # KPI 18: Monthly Work Order Trends
     with col2:
         fig_wo_trend = go.Figure()
         fig_wo_trend.add_trace(
@@ -974,7 +932,7 @@ with dashboard_tab:
         )
         st.plotly_chart(fig_wo_trend, use_container_width=True)
 
-    # KPI 25: Work Order On-Time Completion
+    # KPI 19: Work Order On-Time Completion
     with col3:
         fig_gauge = go.Figure(go.Indicator(
             mode="gauge+number",
@@ -1006,27 +964,39 @@ with dashboard_tab:
         )
         st.plotly_chart(fig_gauge, use_container_width=True)
 
-    # Compliance Trends KPI 22  
+    # KPI 20 – PM Compliance Trends by Location
     st.markdown("### 📈 Compliance Trends", unsafe_allow_html=True)
 
     if not filtered_df.empty and 'ParentLocation' in filtered_df:
+        kpi22_df = filtered_df.copy()
 
-        # Step 1: Fill missing RequiredByDate with end of OrderDate week
-        filtered_df['RequiredByDate'] = filtered_df.apply(
+        # Fill RequiredByDate if missing
+        kpi22_df['RequiredByDate'] = kpi22_df.apply(
             lambda x: x['OrderDate'] + pd.Timedelta(days=(6 - x['OrderDate'].weekday()))
             if pd.isnull(x['RequiredByDate']) and pd.notnull(x['OrderDate']) else x['RequiredByDate'],
             axis=1
         )
 
-        duckdb.register('filtered_df', filtered_df)
+        # Ensure RequiredByDateEnd and OnTimeStatus are accurate
+        kpi22_df['RequiredByDateEnd'] = kpi22_df['RequiredByDate'] + pd.Timedelta(hours=23, minutes=59, seconds=59)
 
-        # Step 2: Compliance Query with adjusted RequiredByDate and excluding Cancelled PMs
+        kpi22_df['OnTimeStatus'] = np.where(
+            (kpi22_df['WorkStatus'].isin(['Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog'])) &
+            (kpi22_df['ActualEndDateTime'].notna()) &
+            (kpi22_df['RequiredByDateEnd'].notna()),
+            np.where(kpi22_df['ActualEndDateTime'] <= kpi22_df['RequiredByDateEnd'], 'On Time', 'Late'),
+            'Unknown'
+        )
+
+        duckdb.register('filtered_df', kpi22_df)
+
+        # Compliance query with Cancelled included in denominator
         compliance_query = """
             SELECT 
                 "ParentLocation",
                 SUM(CASE 
                     WHEN "OnTimeStatus" = 'On Time' 
-                        AND "WorkStatus" IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog') 
+                    AND "WorkStatus" IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog') 
                     THEN 1 ELSE 0 
                 END) * 100.0
                 / NULLIF(COUNT(*), 0) AS pm_compliance
@@ -1041,9 +1011,8 @@ with dashboard_tab:
             )
             AND "RequiredByDate" IS NOT NULL
             AND "RequiredByDate" <= CURRENT_DATE
-            AND "WorkStatus" != 'Cancelled'
             GROUP BY "ParentLocation"
-        """ 
+        """
 
         location_compliance = duckdb.query(compliance_query).df().fillna(0)
 
@@ -1088,11 +1057,13 @@ with dashboard_tab:
 
 
 
-    # Pareto Charts (KPIs 26-28)
+
+
+    # Pareto Charts (KPIs 21-23)
     st.markdown("### 📊 Pareto Analysis", unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
 
-    # KPI 26: Top 10 Work Types by Count
+    # KPI 21: Top 10 Work Types by Count
     with col1:
         pareto_worktype_query = """
         SELECT "WorkType", COUNT(*) as count
@@ -1131,7 +1102,7 @@ with dashboard_tab:
         )
         st.plotly_chart(fig_pareto_worktype, use_container_width=True)
 
-    # KPI 27: Top 10 FailureType by Count
+    # KPI 22: Top 10 FailureType by Count
     with col2:
         pareto_failure_type_query = """
         SELECT "FailureType", COUNT(*) as count
@@ -1171,7 +1142,7 @@ with dashboard_tab:
         )
         st.plotly_chart(fig_pareto_failure_type, use_container_width=True)
 
-    # KPI 28: Top 10 SystemType by Count
+    # KPI 23: Top 10 SystemType by Count
     with col3:
         pareto_system_type_query = """
         SELECT "SystemType", COUNT(*) as count
@@ -1226,7 +1197,6 @@ with dashboard_tab:
 # -----------------------------------------
 # Table Metrics Tab
 # -----------------------------------------
-# PM Compliance by Location (Table Metrics Section)
 with table_metrics_tab:
     st.markdown("### 📋 Table Metrics", unsafe_allow_html=True)
 
@@ -1234,63 +1204,86 @@ with table_metrics_tab:
     with st.expander("📊 PM Compliance by Location"):
         st.markdown("#### PM Compliance by Location")
 
-        # Define dynamic date ranges (independent of filters)
-        current_date = pd.to_datetime(datetime.now())  # Dynamic current date
+        # Current date context
+        current_date = pd.to_datetime(datetime.now())
         current_year = current_date.year
-        current_week = current_date.isocalendar().week
-        prev_week = current_week - 1
-
-        if prev_week <= 0:
-            prev_year = current_year - 1
-            prev_week = pd.to_datetime(f'{prev_year}-12-31').isocalendar().week
-        else:
-            prev_year = current_year
-
-        current_month_start = current_date.replace(day=1)
+        current_month_index = current_date.month
         ytd_start = current_date.replace(month=1, day=1)
 
-        duckdb.register('full_df', df)
+        # Build list of expected months up to current
+        expected_ytd_months = [datetime(current_year, m, 1).strftime('%B') for m in range(1, current_month_index + 1)]
 
-        # Update PM Compliance queries to exclude Cancelled
-        base_query_prev_week = """
-            SELECT 
-                "ParentLocation",
-                SUM(CASE WHEN "OnTimeStatus" = 'On Time' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0) AS pm_compliance
-            FROM full_df
+        # Determine if current filters are default
+        default_selected = (
+            set(selected_years) == {current_year} and
+            all(month in selected_months for month in expected_ytd_months)
+        )
+
+        # Patch RequiredByDate and OnTimeStatus
+        filtered_df['RequiredByDate'] = filtered_df.apply(
+            lambda x: x['OrderDate'] + pd.Timedelta(days=(6 - x['OrderDate'].weekday()))
+            if pd.isnull(x['RequiredByDate']) and pd.notnull(x['OrderDate']) else x['RequiredByDate'], axis=1)
+
+        filtered_df['RequiredByDateEnd'] = filtered_df['RequiredByDate'] + pd.Timedelta(hours=23, minutes=59, seconds=59)
+
+        filtered_df['OnTimeStatus'] = np.where(
+            (filtered_df['WorkStatus'].isin(['Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog'])) &
+            (filtered_df['ActualEndDateTime'].notna()) &
+            (filtered_df['RequiredByDateEnd'].notna()),
+            np.where(filtered_df['ActualEndDateTime'] <= filtered_df['RequiredByDateEnd'], 'On Time', 'Late'),
+            'Unknown')
+
+        duckdb.register('filtered_df', filtered_df)
+
+        base_query = """
+            SELECT "ParentLocation",
+                SUM(CASE 
+                    WHEN "OnTimeStatus" = 'On Time' 
+                    AND "WorkStatus" IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog') 
+                    THEN 1 ELSE 0 
+                END) * 100.0 / NULLIF(COUNT(*), 0) AS pm_compliance
+            FROM filtered_df
             WHERE "WorkType" IN ('Planned Maint.', 'Planned Corrective Maint.', 'Planned Improvement', 'Inspection', 'Projects', 'Predictive Maint')
-            AND COALESCE("RequiredByDate", "OrderDate") IS NOT NULL
-            AND "WorkStatus" NOT IN ('Cancelled')
-            AND EXTRACT(WEEK FROM COALESCE("RequiredByDate", "OrderDate")) = ?
-            AND EXTRACT(YEAR FROM COALESCE("RequiredByDate", "OrderDate")) = ?
+            AND "RequiredByDate" IS NOT NULL
+            AND "RequiredByDate" BETWEEN ? AND ?
             GROUP BY "ParentLocation"
         """
 
-        base_query_date_range = """
-            SELECT 
-                "ParentLocation",
-                SUM(CASE WHEN "OnTimeStatus" = 'On Time' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0) AS pm_compliance
-            FROM full_df
+        # Previous Week
+        prev_week = current_date.isocalendar().week - 1
+        prev_year = current_year if prev_week > 0 else current_year - 1
+        if prev_week <= 0:
+            prev_week = pd.to_datetime(f'{prev_year}-12-31').isocalendar().week
+        prev_week_query = """
+            SELECT "ParentLocation",
+                SUM(CASE 
+                    WHEN "OnTimeStatus" = 'On Time' 
+                    AND "WorkStatus" IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog')
+                    THEN 1 ELSE 0 
+                END) * 100.0 / NULLIF(COUNT(*), 0) AS pm_compliance
+            FROM filtered_df
             WHERE "WorkType" IN ('Planned Maint.', 'Planned Corrective Maint.', 'Planned Improvement', 'Inspection', 'Projects', 'Predictive Maint')
-            AND COALESCE("RequiredByDate", "OrderDate") IS NOT NULL
-            AND "WorkStatus" NOT IN ('Cancelled')
-            AND COALESCE("RequiredByDate", "OrderDate") BETWEEN ? AND ?
+            AND "RequiredByDate" IS NOT NULL
+            AND EXTRACT(WEEK FROM "RequiredByDate") = ?
+            AND EXTRACT(YEAR FROM "RequiredByDate") = ?
             GROUP BY "ParentLocation"
         """
 
-        prev_week_df = duckdb.query(base_query_prev_week, params=[prev_week, prev_year]).df()
-        prev_week_df = prev_week_df.rename(columns={'pm_compliance': 'Previous Week Compliance (%)'})
+        prev_week_df = duckdb.query(prev_week_query, params=[prev_week, prev_year]).df()
+        prev_week_df = prev_week_df.rename(columns={'pm_compliance': 'Previous Week Compliance (%)'}) if not prev_week_df.empty else pd.DataFrame(columns=['ParentLocation', 'Previous Week Compliance (%)'])
 
-        curr_month_df = duckdb.query(base_query_date_range, params=[current_month_start, current_date]).df()
-        curr_month_df = curr_month_df.rename(columns={'pm_compliance': 'Current Month Compliance (%)'})
+        # Current Month
+        current_month_start = current_date.replace(day=1)
+        curr_month_df = duckdb.query(base_query, params=[current_month_start, current_date]).df()
+        curr_month_df = curr_month_df.rename(columns={'pm_compliance': 'Current Month Compliance (%)'}) if not curr_month_df.empty else pd.DataFrame(columns=['ParentLocation', 'Current Month Compliance (%)'])
 
-        ytd_df = duckdb.query(base_query_date_range, params=[ytd_start, current_date]).df()
-        ytd_df = ytd_df.rename(columns={'pm_compliance': 'YTD Compliance (%)'})
+        # YTD always forced to current year to current date
+        ytd_df = duckdb.query(base_query, params=[ytd_start, current_date]).df()
+        ytd_df = ytd_df.rename(columns={'pm_compliance': 'YTD Compliance (%)'}) if not ytd_df.empty else pd.DataFrame(columns=['ParentLocation', 'YTD Compliance (%)'])
 
-        compliance_df = prev_week_df[['ParentLocation', 'Previous Week Compliance (%)']] \
-            .merge(curr_month_df[['ParentLocation', 'Current Month Compliance (%)']], on='ParentLocation', how='outer') \
-            .merge(ytd_df[['ParentLocation', 'YTD Compliance (%)']], on='ParentLocation', how='outer')
-        compliance_df = compliance_df.fillna(0.00)
-        compliance_df = compliance_df.sort_values('ParentLocation')
+        compliance_df = prev_week_df.merge(curr_month_df, on='ParentLocation', how='outer')
+        compliance_df = compliance_df.merge(ytd_df, on='ParentLocation', how='outer')
+        compliance_df = compliance_df.sort_values('ParentLocation').replace(0.00, None)
 
         if not compliance_df.empty:
             st.dataframe(compliance_df, use_container_width=True, column_config={
@@ -1301,135 +1294,7 @@ with table_metrics_tab:
         else:
             st.write("No PM compliance data for the selected periods.")
 
-        duckdb.unregister('full_df')
-    
-    # Completed/Closed Work Orders (unchanged)
-    with st.expander("✅ Completed/Closed Work Orders"):
-        st.markdown("#### Completed/Closed Work Orders")
-        if not filtered_df.empty:
-            display_df = filtered_df[
-                (filtered_df['WorkStatus'].isin(['Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog'])) &
-                (filtered_df['ActualEndDateTime'].notna())
-            ][[
-                'OrderDate', 'Order', 'AssetName', 'WorkDescription', 'RequiredByDate', 
-                'ActualStartDateTime', 'ActualEndDateTime', 'Duration', 
-                'WorkType', 'SystemType', 'WorkStatus', 'WorkPriority'
-            ]].sort_values('OrderDate', ascending=False)
-            st.dataframe(
-                display_df,
-                use_container_width=True,
-                column_config={
-                    'OrderDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
-                    'RequiredByDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
-                    'ActualStartDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
-                    'ActualEndDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
-                    'Duration': st.column_config.NumberColumn(format="%.2f hrs", min_value=0)
-                }
-            )
-        else:
-            st.write("No completed/closed work orders for the selected filters.")
-    
-    # New: Corrective Work Orders
-    with st.expander("📋 Corrective Work Orders"):
-        st.markdown("#### Corrective Work Orders")
-        if not filtered_df.empty:
-            corrective_query = """
-                SELECT 
-                    "OrderDate",
-                    "Order",
-                    "AssetName",
-                    "WorkDescription",
-                    "RequiredByDate",
-                    "ActualStartDateTime",
-                    "ActualEndDateTime",
-                    "Duration",
-                    "WorkType",
-                    "SystemType",
-                    "WorkStatus",
-                    "WorkPriority",
-                    "ParentLocation"
-                FROM filtered_df
-                WHERE "WorkType" IN ('Planned Corrective Maint.', 'Unplanned Corrective Maint.', 'Breakdown', 'Planned Improvement')
-                ORDER BY "OrderDate" DESC
-            """
-            corrective_df = duckdb.query(corrective_query).df()
-            st.dataframe(
-                corrective_df,
-                use_container_width=True,
-                column_config={
-                    'OrderDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
-                    'RequiredByDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
-                    'ActualStartDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
-                    'ActualEndDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
-                    'Duration': st.column_config.NumberColumn(format="%.2f hrs", min_value=0)
-                }
-            )
-        else:
-            st.write("No corrective work orders for the selected filters.")
-    
-    # New: Emergency Work Orders
-    with st.expander("🚨 Emergency Work Orders"):
-        st.markdown("#### Emergency Work Orders (Breakdown, Unplanned)")
-        if not filtered_df.empty:
-            emergency_query = """
-                SELECT 
-                    "OrderDate",
-                    "Order",
-                    "AssetName",
-                    "WorkDescription",
-                    "RequiredByDate",
-                    "ActualStartDateTime",
-                    "ActualEndDateTime",
-                    "Duration",
-                    "WorkType",
-                    "SystemType",
-                    "WorkStatus",
-                    "WorkPriority",
-                    "ParentLocation"
-                FROM filtered_df
-                WHERE "WorkType" IN ('Breakdown', 'Unplanned Corrective Maint.')
-                AND "WorkPriority" = 'P1 - High'
-                ORDER BY "OrderDate" DESC
-            """
-            emergency_df = duckdb.query(emergency_query).df()
-            st.dataframe(
-                emergency_df,
-                use_container_width=True,
-                column_config={
-                    'OrderDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
-                    'RequiredByDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
-                    'ActualStartDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
-                    'ActualEndDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
-                    'Duration': st.column_config.NumberColumn(format="%.2f hrs", min_value=0)
-                }
-            )
-        else:
-            st.write("No emergency work orders for the selected filters.")
-    
-    # Project Orders YTD
-    with st.expander("🏗️ Project Orders YTD"):
-        st.markdown("#### Project Work Orders Year to Date")
-        if not filtered_df.empty:
-            ytd_start = pd.to_datetime(f"{current_date.year}-01-01")
-            project_query = """
-                SELECT "Order", OrderDate, AssetName, WorkDescription, 
-                       WorkType, SystemType, WorkStatus, WorkPriority
-                FROM filtered_df
-                WHERE WorkType = 'Projects'
-                AND OrderDate >= ?
-                AND OrderDate <= ?
-                ORDER BY OrderDate
-            """
-            project_df = duckdb.query(project_query, params=[ytd_start, current_date]).df()
-            st.dataframe(
-                project_df,
-                use_container_width=True,
-                column_config={
-                    'OrderDate': st.column_config.DateColumn(format="MM/DD/YYYY")
-                }
-            )
-        else:
-            st.write("No project orders for the selected filters.")
+        duckdb.unregister('filtered_df')
     
     # MTTR by Location 
     with st.expander("🌐 MTTR by Location"):
@@ -1591,7 +1456,7 @@ with table_metrics_tab:
             """
             reliability_df = duckdb.query(reliability_query).df()
 
-            st.markdown("##### 📄 Raw Change-Out Records (Latest First)")
+            st.markdown("##### 📄 Raw Change-Out Records")
             st.dataframe(
                 reliability_df,
                 use_container_width=True,
@@ -1607,16 +1472,22 @@ with table_metrics_tab:
             if not reliability_df.empty:
                 st.markdown("##### 📊 Combined Reliability Metrics per Buoy")
 
-                valid_df = reliability_df[reliability_df['DaysSinceLastChangeOut'].notnull()]
-
-                combined_df = valid_df.groupby(['AssetName', 'AssetDescription']).agg(
+                # Group full dataset first for count and total
+                summary_df = reliability_df.groupby(['AssetName', 'AssetDescription']).agg(
                     ChangeOutCount=('Order', 'count'),
-                    MTTR_Hrs=('Duration', 'mean'),
-                    MTBF_Days=('DaysSinceLastChangeOut', 'mean'),
                     TotalChangeOutHours=('Duration', 'sum'),
                     LastChangeOutDate=('ActualEndDateTime', 'max')
                 ).reset_index()
 
+                # Calculate MTTR and MTBF from valid intervals
+                valid_df = reliability_df[reliability_df['DaysSinceLastChangeOut'].notnull()]
+                reliability_avg = valid_df.groupby('AssetName').agg(
+                    MTTR_Hrs=('Duration', 'mean'),
+                    MTBF_Days=('DaysSinceLastChangeOut', 'mean')
+                ).reset_index()
+
+                # Merge results
+                combined_df = summary_df.merge(reliability_avg, on='AssetName', how='left')
                 combined_df['NextEstimatedChangeOut'] = pd.to_datetime(combined_df['LastChangeOutDate']) + pd.to_timedelta(combined_df['MTBF_Days'], unit='D')
                 combined_df['MTTR_Hrs'] = combined_df['MTTR_Hrs'].round(2)
                 combined_df['MTBF_Days'] = combined_df['MTBF_Days'].round(2)
