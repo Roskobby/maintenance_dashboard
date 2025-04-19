@@ -1000,7 +1000,7 @@ with dashboard_tab:
         ))
         fig_gauge.update_layout(
             margin=dict(l=40, r=40, t=40, b=40),
-            font=dict(size=14, color="gray"),
+            font=dict(size=14, color="white"),
             plot_bgcolor='rgba(0, 0, 0, 0)',
             paper_bgcolor='rgba(0, 0, 0, 0)'
         )
