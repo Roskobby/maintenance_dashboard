@@ -1296,6 +1296,135 @@ with table_metrics_tab:
 
         duckdb.unregister('filtered_df')
     
+    # Completed/Closed Work Orders (unchanged)
+    with st.expander("✅ Completed/Closed Work Orders"):
+        st.markdown("#### Completed/Closed Work Orders")
+        if not filtered_df.empty:
+            display_df = filtered_df[
+                (filtered_df['WorkStatus'].isin(['Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog'])) &
+                (filtered_df['ActualEndDateTime'].notna())
+            ][[
+                'OrderDate', 'Order', 'AssetName', 'WorkDescription', 'RequiredByDate', 
+                'ActualStartDateTime', 'ActualEndDateTime', 'Duration', 
+                'WorkType', 'SystemType', 'WorkStatus', 'WorkPriority'
+            ]].sort_values('OrderDate', ascending=False)
+            st.dataframe(
+                display_df,
+                use_container_width=True,
+                column_config={
+                    'OrderDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
+                    'RequiredByDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
+                    'ActualStartDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
+                    'ActualEndDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
+                    'Duration': st.column_config.NumberColumn(format="%.2f hrs", min_value=0)
+                }
+            )
+        else:
+            st.write("No completed/closed work orders for the selected filters.")
+    
+    # New: Corrective Work Orders
+    with st.expander("📋 Corrective Work Orders"):
+        st.markdown("#### Corrective Work Orders")
+        if not filtered_df.empty:
+            corrective_query = """
+                SELECT 
+                    "OrderDate",
+                    "Order",
+                    "AssetName",
+                    "WorkDescription",
+                    "RequiredByDate",
+                    "ActualStartDateTime",
+                    "ActualEndDateTime",
+                    "Duration",
+                    "WorkType",
+                    "SystemType",
+                    "WorkStatus",
+                    "WorkPriority",
+                    "ParentLocation"
+                FROM filtered_df
+                WHERE "WorkType" IN ('Planned Corrective Maint.', 'Unplanned Corrective Maint.', 'Breakdown', 'Planned Improvement')
+                ORDER BY "OrderDate" DESC
+            """
+            corrective_df = duckdb.query(corrective_query).df()
+            st.dataframe(
+                corrective_df,
+                use_container_width=True,
+                column_config={
+                    'OrderDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
+                    'RequiredByDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
+                    'ActualStartDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
+                    'ActualEndDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
+                    'Duration': st.column_config.NumberColumn(format="%.2f hrs", min_value=0)
+                }
+            )
+        else:
+            st.write("No corrective work orders for the selected filters.")
+    
+    # New: Emergency Work Orders
+    with st.expander("🚨 Emergency Work Orders"):
+        st.markdown("#### Emergency Work Orders (Breakdown, Unplanned)")
+        if not filtered_df.empty:
+            emergency_query = """
+                SELECT 
+                    "OrderDate",
+                    "Order",
+                    "AssetName",
+                    "WorkDescription",
+                    "RequiredByDate",
+                    "ActualStartDateTime",
+                    "ActualEndDateTime",
+                    "Duration",
+                    "WorkType",
+                    "SystemType",
+                    "WorkStatus",
+                    "WorkPriority",
+                    "ParentLocation"
+                FROM filtered_df
+                WHERE "WorkType" IN ('Breakdown', 'Unplanned Corrective Maint.')
+                AND "WorkPriority" = 'P1 - High'
+                ORDER BY "OrderDate" DESC
+            """
+            emergency_df = duckdb.query(emergency_query).df()
+            st.dataframe(
+                emergency_df,
+                use_container_width=True,
+                column_config={
+                    'OrderDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
+                    'RequiredByDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
+                    'ActualStartDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
+                    'ActualEndDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
+                    'Duration': st.column_config.NumberColumn(format="%.2f hrs", min_value=0)
+                }
+            )
+        else:
+            st.write("No emergency work orders for the selected filters.")
+
+    # Project Orders YTD
+    with st.expander("🏗️ Project Orders YTD"):
+        st.markdown("#### Project Work Orders Year to Date")
+        if not filtered_df.empty:
+            ytd_start = pd.to_datetime(f"{current_date.year}-01-01")
+            project_query = """
+                SELECT "Order", OrderDate, AssetName, WorkDescription, 
+                       WorkType, SystemType, WorkStatus, WorkPriority
+                FROM filtered_df
+                WHERE WorkType = 'Projects'
+                AND OrderDate >= ?
+                AND OrderDate <= ?
+                ORDER BY OrderDate DESC
+            """
+            project_df = duckdb.query(project_query, params=[ytd_start, current_date]).df()
+            st.dataframe(
+                project_df,
+                use_container_width=True,
+                column_config={
+                    'OrderDate': st.column_config.DateColumn(format="MM/DD/YYYY")
+                }
+            )
+        else:
+            st.write("No project orders for the selected filters.")
+
+    
     # MTTR by Location 
     with st.expander("🌐 MTTR by Location"):
         st.markdown("#### Mean Time to Repair by Location (Hours)")
