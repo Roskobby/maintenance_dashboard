@@ -681,7 +681,7 @@ with dashboard_tab:
         st.markdown(" ", unsafe_allow_html=True)  # Spacer
 
     # Project Metrics (KPIs 9-10, 11-12)
-    st.markdown("### ⏱️ Time-Based / Project Metrics", unsafe_allow_html=True)
+    st.markdown("### ⏱️Project Metrics", unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -708,11 +708,6 @@ with dashboard_tab:
 
     with col3:
         st.markdown(" ", unsafe_allow_html=True)  # Spacer
-
-    # Projects in Progress List
-    if metrics["project_in_progress_count"] > 0:
-        st.markdown("#### 📋 Projects in Progress List")
-        st.dataframe(project_in_focus_result)
 
     # Percentage-Based Metrics (KPIs 11-13)
     st.markdown("### 📏 Performance Metrics", unsafe_allow_html=True)
@@ -769,11 +764,10 @@ with dashboard_tab:
         if not filtered_df.empty and 'ParentLocation' in filtered_df:
             location_query = """
             SELECT "ParentLocation", COUNT(*) as count
-            FROM df
+            FROM filtered_df
             GROUP BY "ParentLocation"
             """
             location_counts = duckdb.query(location_query).df()
-            # Sort by count in descending order for tallest to shortest bars
             location_counts = location_counts.sort_values(by='count', ascending=False)
             fig_location = px.bar(
                 location_counts,
@@ -800,11 +794,10 @@ with dashboard_tab:
         if not filtered_df.empty and 'WorkPriority' in filtered_df:
             priority_query = """
             SELECT "WorkPriority", COUNT(*) as count
-            FROM df
+            FROM filtered_df
             GROUP BY "WorkPriority"
             """
             priority_counts = duckdb.query(priority_query).df()
-            # Sort by count in descending order for tallest to shortest bars
             priority_counts = priority_counts.sort_values(by='count', ascending=False)
             fig_priority = px.bar(
                 priority_counts,
@@ -831,7 +824,7 @@ with dashboard_tab:
         if not filtered_df.empty and 'WorkType' in filtered_df:
             work_type_query = """
             SELECT "WorkType", COUNT(*) as count
-            FROM df
+            FROM filtered_df
             GROUP BY "WorkType"
             """
             work_type_counts = duckdb.query(work_type_query).df()
@@ -849,6 +842,7 @@ with dashboard_tab:
                 paper_bgcolor='rgba(0, 0, 0, 0)'
             )
             st.plotly_chart(fig_work_type, use_container_width=True)
+
 
     col1, col2, col3 = st.columns(3)
 
@@ -871,11 +865,6 @@ with dashboard_tab:
         total_pie_hours = planned_hours_pie + corrective_hours_pie
         corrective_pct = (corrective_hours_pie / total_pie_hours * 100) if total_pie_hours > 0 else 0
         planned_pct = (planned_hours_pie / total_pie_hours * 100) if total_pie_hours > 0 else 0  # Use direct calculation
-
-        # Debug
-        #st.write(f"KPI 23: Planned Hours = {planned_hours_pie:.2f}, Corrective Hours = {corrective_hours_pie:.2f}, Total Hours = {total_pie_hours:.2f}")
-        #st.write(f"KPI 23 Raw: Planned % = {(planned_hours_pie / total_pie_hours * 100):.2f}, Corrective % = {(corrective_hours_pie / total_pie_hours * 100):.2f}")
-        #st.write(f"KPI 23 Display: Planned % = {planned_pct:.2f}, Corrective % = {corrective_pct:.2f}")
 
         fig = go.Figure(
             data=[
