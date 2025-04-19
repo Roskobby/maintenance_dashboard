@@ -860,7 +860,7 @@ with dashboard_tab:
                 xaxis_title="Priority Level",
                 yaxis_title="Work Order Count",
                 margin=dict(l=40, r=40, t=40, b=40),
-                font=dict(size=14, color="white"),
+                font=dict(size=14, color="green"),
                 plot_bgcolor='rgba(0, 0, 0, 0)',
                 paper_bgcolor='rgba(0, 0, 0, 0)',
                 bargap=0,
