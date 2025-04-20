@@ -9,7 +9,11 @@ from datetime import datetime, timedelta
 import duckdb
 import numpy as np
 
-st.set_page_config(page_title="Maintenance Dashboard", page_icon=":bar_chart:", layout="wide")
+st.set_page_config(page_title="GPMS Maintenance Dashboard", page_icon=":bar_chart:", layout="wide")
+
+# 🔁 Reload Button Logic (Top of Main Page)
+refresh_data = st.button("🔁 Reload Data (Clear Cache)")
+
 
 # -----------------------------------------
 # Constants and Helper Functions
@@ -39,8 +43,7 @@ def calculate_duration(row):
 # -----------------------------------------
 # Data Loading and Preprocessing
 # -----------------------------------------
-@st.cache_data
-def load_data():
+def load_data_uncached():
     file_path = "Asset Work History.csv"
     try:
         df = pd.read_csv(file_path)
@@ -85,8 +88,13 @@ def load_data():
 
     return df
 
+@st.cache_data
+def load_data_cached():
+    return load_data_uncached()
 
-df = load_data()
+# ✅ Load data based on button click
+df = load_data_uncached() if refresh_data else load_data_cached()
+
 
 # -----------------------------------------
 # Current Date and Dashboard Header
@@ -97,12 +105,22 @@ st.write(f"Current date set to: {current_date}")
 
 st.markdown(
     """
-    <div style='text-align: center;'>
-        <h1 style='font-size: 5em; font-family: "Comic Sans MS", cursive, sans-serif; font-weight: 600; color: #f63366;'>📊 Maintenance Dashboard</h1>
+    <div style='text-align: center; padding: 10px 0; background-color: #0E1117;'>
+        <h1 style='
+            font-size: 4em;
+            font-family: "Montserrat", sans-serif;
+            font-weight: 700;
+            color: white;
+            margin: 0;
+        '>📊 GPMS Maintenance Dashboard</h1>
     </div>
     """,
     unsafe_allow_html=True
 )
+
+
+
+
 
 # -----------------------------------------
 # Dashboard Filters
@@ -341,18 +359,6 @@ def calculate_work_order_metrics(df):
         completion_rate = (completed / total * 100) if total > 0 else 0.0
     except Exception as e:
         print(f"Error in completion_rate query: {e}")
-
-    # Validate hours
-    expected_total = planned_hours + corrective_hours
-    if abs(total_hours - expected_total) > 0.01:
-        worktype_query = """
-        SELECT "WorkType", SUM(COALESCE("Duration", 0)) as hours
-        FROM df
-        WHERE "ActualStartDateTime" IS NOT NULL AND "ActualEndDateTime" IS NOT NULL
-        AND "WorkStatus" IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog')
-        AND "Duration" IS NOT NULL
-        GROUP BY "WorkType"
-        """
 
     # Check for other WorkType values
     worktype_query = """
@@ -862,6 +868,8 @@ with dashboard_tab:
         """
         pmp_vs_corrective_result = duckdb.query(pmp_vs_corrective_query).fetchone()
         planned_hours_pie, corrective_hours_pie = pmp_vs_corrective_result or (0, 0)
+        planned_hours_pie = planned_hours_pie or 0
+        corrective_hours_pie = corrective_hours_pie or 0
         total_pie_hours = planned_hours_pie + corrective_hours_pie
         corrective_pct = (corrective_hours_pie / total_pie_hours * 100) if total_pie_hours > 0 else 0
         planned_pct = (planned_hours_pie / total_pie_hours * 100) if total_pie_hours > 0 else 0  # Use direct calculation
@@ -1024,7 +1032,7 @@ with dashboard_tab:
                 line=dict(color="red", width=2, dash="dash")
             )
             fig.update_layout(
-                title="PM Compliance by Location (Scheduled PMs Due by Today)",
+                title="PM Compliance by Location",
                 xaxis_title="Location",
                 yaxis_title="Compliance (%)",
                 yaxis=dict(range=[0, 100]),
@@ -1648,3 +1656,31 @@ with table_metrics_tab:
         }
         </style>
     """, unsafe_allow_html=True)
+
+      # Apply Tab styling 
+
+    st.markdown("""
+    <style>
+    .stTabs [data-baseweb="tab"] {
+        background-color: #1F2937;  /* Darker than main bg for contrast */
+        color: white;
+        padding: 12px 20px;
+        font-size: 1.1rem;
+        font-weight: 600;
+        border-radius: 5px 5px 0 0;
+        margin-right: 5px;
+        border: 1px solid #3E4C59;
+    }
+
+    .stTabs [aria-selected="true"] {
+        background-color: #2563EB !important; /* Active tab highlight */
+        color: white;
+        border-bottom: 2px solid #2563EB;
+    }
+
+    .stTabs [data-baseweb="tab"]:hover {
+        background-color: #374151;
+        cursor: pointer;
+    }
+    </style>
+""", unsafe_allow_html=True)
