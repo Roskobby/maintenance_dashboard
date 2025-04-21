@@ -8,12 +8,14 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import duckdb
 import numpy as np
+import pdfkit
+import tempfile
+import base64
 
 st.set_page_config(page_title="GPMS Maintenance Dashboard", page_icon=":bar_chart:", layout="wide")
 
 # 🔁 Reload Button Logic (Top of Main Page)
 refresh_data = st.button("🔁 Reload Data (Clear Cache)")
-
 
 # -----------------------------------------
 # Constants and Helper Functions
@@ -94,8 +96,6 @@ def load_data_cached():
 
 # ✅ Load data based on button click
 df = load_data_uncached() if refresh_data else load_data_cached()
-
-
 
 # -----------------------------------------
 # Current Date and Dashboard Header
