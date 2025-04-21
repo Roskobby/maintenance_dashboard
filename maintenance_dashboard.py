@@ -44,9 +44,9 @@ def calculate_duration(row):
 # Data Loading and Preprocessing
 # -----------------------------------------
 def load_data_uncached():
-    file_path = "Asset Work History.csv"
+    file_path = "Asset Work History.xlsx"  
     try:
-        df = pd.read_csv(file_path)
+        df = pd.read_excel(file_path)  
     except FileNotFoundError:
         st.error(f"File not found: {file_path}")
         return pd.DataFrame()
@@ -96,6 +96,7 @@ def load_data_cached():
 df = load_data_uncached() if refresh_data else load_data_cached()
 
 
+
 # -----------------------------------------
 # Current Date and Dashboard Header
 # -----------------------------------------
@@ -117,8 +118,6 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
-
-
 
 
 
@@ -229,18 +228,13 @@ def calculate_work_order_metrics(df):
     SELECT COUNT(*) as total_projects_ytd
     FROM df
     WHERE "WorkType" = 'Projects'
-    AND "ActualEndDateTime" IS NOT NULL
-    AND "ActualEndDateTime" >= ?
-    AND "ActualEndDateTime" <= ?
     """
     open_wo_week = duckdb.query(current_open_wo_week_query).fetchone()[0] or 0
     completed_wo_week = duckdb.query(completed_wo_week_query, params=[current_week_start, current_week_end]).fetchone()[0] or 0
     in_progress_wo_week = duckdb.query(in_progress_wo_week_query).fetchone()[0] or 0
     project_in_focus_result = duckdb.query(project_in_progress_query).df()
     project_in_progress_count = len(project_in_focus_result)
-    total_projects_ytd = duckdb.query(total_projects_ytd_query, params=[
-        pd.to_datetime(f"{current_date.year}-01-01"), current_date
-    ]).fetchone()[0] or 0
+    total_projects_ytd = duckdb.query(total_projects_ytd_query).fetchone()[0] or 0
 
     # High-Level Counts (KPIs 4-8)
     total_wo = len(df)  # Total work orders in filtered dataset
@@ -1053,9 +1047,6 @@ with dashboard_tab:
         st.warning("No data available for compliance trends under current filters.")
 
 
-
-
-
     # Pareto Charts (KPIs 21-23)
     st.markdown("### 📊 Pareto Analysis", unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
@@ -1292,8 +1283,33 @@ with table_metrics_tab:
             st.write("No PM compliance data for the selected periods.")
 
         duckdb.unregister('filtered_df')
+
+        # Open Work Orders Table Metric
+    with st.expander("📂 Open Work Orders"):
+        st.markdown("#### Open Work Orders")
+        if not filtered_df.empty:
+            open_wo_df = filtered_df[
+                ~filtered_df['WorkStatus'].isin(['Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog', 'Cancelled'])
+            ][[
+                'OrderDate', 'Order', 'AssetName', 'WorkDescription', 'ActualStartDateTime', 'ActualEndDateTime', 'Duration', 'WorkType', 'SystemType',
+                'WorkStatus', 'WorkPriority', 'ParentLocation'
+            ]].sort_values(by='OrderDate', ascending=False)
+
+            st.dataframe(
+                open_wo_df,
+                use_container_width=True,
+                column_config={
+                    'OrderDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
+                    'ActualStartDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
+                    'ActualEndDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
+                    'Duration': st.column_config.NumberColumn(format="%.2f hrs", min_value=0)
+                }
+            )
+        else:
+            st.info("No open work orders based on current filters.")
+
     
-    # Completed/Closed Work Orders (unchanged)
+    # Completed/Closed Work Orders
     with st.expander("✅ Completed/Closed Work Orders"):
         st.markdown("#### Completed/Closed Work Orders")
         if not filtered_df.empty:
@@ -1396,30 +1412,27 @@ with table_metrics_tab:
         else:
             st.write("No emergency work orders for the selected filters.")
 
-    # Project Orders YTD
-    with st.expander("🏗️ Project Orders YTD"):
-        st.markdown("#### Project Work Orders Year to Date")
-        if not filtered_df.empty:
-            ytd_start = pd.to_datetime(f"{current_date.year}-01-01")
-            project_query = """
-                SELECT "Order", OrderDate, AssetName, WorkDescription, 
-                       WorkType, SystemType, WorkStatus, WorkPriority
-                FROM filtered_df
-                WHERE WorkType = 'Projects'
-                AND OrderDate >= ?
-                AND OrderDate <= ?
-                ORDER BY OrderDate DESC
-            """
-            project_df = duckdb.query(project_query, params=[ytd_start, current_date]).df()
-            st.dataframe(
-                project_df,
-                use_container_width=True,
-                column_config={
-                    'OrderDate': st.column_config.DateColumn(format="MM/DD/YYYY")
-                }
-            )
-        else:
-            st.write("No project orders for the selected filters.")
+    # Project Orders
+    with st.expander("🏗️ Project Orders"):
+        st.markdown("### 🎗️ Project Orders")
+        project_table_query = """
+        SELECT "Order", OrderDate, AssetName, WorkDescription, 
+            ActualStartDateTime, ActualEndDateTime, Duration,
+            WorkType, SystemType, WorkStatus, WorkPriority
+        FROM df
+        WHERE WorkType = 'Projects'
+        ORDER BY OrderDate DESC
+        """
+        project_table_df = duckdb.query(project_table_query).df()
+        st.dataframe(
+            project_table_df,
+            use_container_width=True,
+            column_config={
+                'OrderDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
+                'ActualStartDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
+                'Duration': st.column_config.NumberColumn(format="%.2f hrs", min_value=0)
+            }
+        )
 
     
     # MTTR by Location 
