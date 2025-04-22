@@ -8,8 +8,7 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import duckdb
 import numpy as np
-import tempfile
-import base64
+
 
 st.set_page_config(page_title="GPMS Maintenance Dashboard", page_icon=":bar_chart:", layout="wide")
 
