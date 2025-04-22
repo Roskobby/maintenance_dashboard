@@ -8,7 +8,6 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import duckdb
 import numpy as np
-import pdfkit
 import tempfile
 import base64
 
