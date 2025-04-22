@@ -8,9 +8,29 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import duckdb
 import numpy as np
-
+import os
+import base64
 
 st.set_page_config(page_title="GPMS Maintenance Dashboard", page_icon=":bar_chart:", layout="wide")
+
+# Function to create a download link for a file
+def get_binary_file_downloader_html(file_path, file_label):
+    if not os.path.exists(file_path):
+        st.error(f"Error: {file_path} not found. Please ensure the KPI manual HTML file is generated.")
+        return None
+    with open(file_path, "rb") as f:
+        data = f.read()
+    b64 = base64.b64encode(data).decode()
+    href = f'<a href="data:application/octet-stream;base64,{b64}" download="{os.path.basename(file_path)}">{file_label}</a>'
+    return href
+
+# Compact download link at the top of the dashboard
+st.markdown(
+    '<p style="font-size:16px;">📖 <a href="data:application/octet-stream;base64,{}" download="kpi_manual.html">Download KPI Manual (HTML)</a> to view metric definitions.</p>'.format(
+        base64.b64encode(open("kpi_manual.html", "rb").read()).decode()
+    ) if os.path.exists("kpi_manual.html") else '<p style="font-size:16px;color:red;">Error: KPI Manual not found.</p>',
+    unsafe_allow_html=True
+)
 
 # 🔁 Reload Button Logic (Top of Main Page)
 refresh_data = st.button("🔁 Reload Data (Clear Cache)")
