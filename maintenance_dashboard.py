@@ -616,7 +616,7 @@ with dashboard_tab:
         st.markdown(
             """
             <div class="metric-container">
-                <p class="metric-label">KPI 2: COMPLETED WORK ORDERS FOR WEEK <span class="info-icon" title="Number of work orders completed during the current week.">ⓘ</span></p>
+                <p class="metric-label">KPI 2: COMPLETED WORK ORDERS FOR THE CURRENT WEEK <span class="info-icon" title="Number of work orders completed during the current week.">ⓘ</span></p>
                 <p class="metric-value">{:,}</p>
             </div>
             """.format(metrics["completed_wo_week"]),
@@ -1433,15 +1433,25 @@ with table_metrics_tab:
     # Project Orders
     with st.expander("🏗️ Project Orders"):
         st.markdown("### 🎗️ Project Orders")
+
+        # Register filtered_df
+        duckdb.register("filtered_df", filtered_df)
+
+        # Query filtered data
         project_table_query = """
         SELECT "Order", OrderDate, AssetName, WorkDescription, 
             ActualStartDateTime, ActualEndDateTime, Duration,
             WorkType, SystemType, WorkStatus, WorkPriority
-        FROM df
+        FROM filtered_df
         WHERE WorkType = 'Projects'
         ORDER BY OrderDate DESC
         """
         project_table_df = duckdb.query(project_table_query).df()
+
+        # Unregister to keep session clean
+        duckdb.unregister("filtered_df")
+
+        # Display
         st.dataframe(
             project_table_df,
             use_container_width=True,
@@ -1451,6 +1461,7 @@ with table_metrics_tab:
                 'Duration': st.column_config.NumberColumn(format="%.2f hrs", min_value=0)
             }
         )
+
 
     
     # MTTR by Location 
@@ -1627,7 +1638,7 @@ with table_metrics_tab:
             )
 
             if not reliability_df.empty:
-                st.markdown("##### 📊 Combined Reliability Metrics per Buoy")
+                st.markdown("##### 📊 Combined Reliability Metrics per Buoy Bushes")
 
                 # Group full dataset first for count and total
                 summary_df = reliability_df.groupby(['AssetName', 'AssetDescription']).agg(
