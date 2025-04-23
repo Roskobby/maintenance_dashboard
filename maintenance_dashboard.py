@@ -728,7 +728,7 @@ with dashboard_tab:
         st.markdown(" ", unsafe_allow_html=True)  # Spacer
 
     # Percentage-Based Metrics (KPIs 11-13)
-    st.markdown("### 📏 Performance Metrics", unsafe_allow_html=True)
+    st.markdown("### 📏 Maintenance Efficiency Metrics", unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
 
     with col1:
