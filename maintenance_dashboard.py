@@ -11,19 +11,8 @@ import numpy as np
 import os
 import base64
 
-st.set_page_config(page_title="GPMS Maintenance Dashboard", page_icon=":bar_chart:", layout="wide")
 
-# Google Analytics Tracking (replace G-XXXXXXXXXX with your GA code)
-st.markdown("""
-    <!-- Google Analytics -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-Q3G2T740BW"></script>
-    <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
-      gtag('config', 'G-Q3G2T740BW');
-    </script>
-""", unsafe_allow_html=True)
+st.set_page_config(page_title="GPMS Maintenance Dashboard", page_icon=":bar_chart:", layout="wide")
 
 
 # Function to create a download link for a file
