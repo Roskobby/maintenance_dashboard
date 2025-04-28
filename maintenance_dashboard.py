@@ -570,7 +570,7 @@ st.markdown("""
     }
     .metric-label {
         font-size: 14px;
-        color: white;
+        color: #A9A9A9; 
         margin-bottom: 5px;
         display: flex;
         justify-content: center;
