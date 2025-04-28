@@ -14,7 +14,6 @@ import base64
 
 st.set_page_config(page_title="GPMS Maintenance Dashboard", page_icon=":bar_chart:", layout="wide")
 
-
 # Function to create a download link for a file
 def get_binary_file_downloader_html(file_path, file_label):
     if not os.path.exists(file_path):
