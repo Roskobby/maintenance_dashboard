@@ -1391,6 +1391,44 @@ with table_metrics_tab:
             )
         else:
             st.write("No corrective work orders for the selected filters.")
+
+    with st.expander("❌ Cancelled Work Orders"):
+        st.markdown("#### Cancelled Work Orders")
+        if not filtered_df.empty:
+            cancelled_query = """
+                SELECT 
+                    "OrderDate",
+                    "Order",
+                    "AssetName",
+                    "WorkDescription",
+                    "RequiredByDate",
+                    "ActualStartDateTime",
+                    "ActualEndDateTime",
+                    "Duration",
+                    "WorkType",
+                    "SystemType",
+                    "WorkStatus",
+                    "WorkPriority",
+                    "ParentLocation"
+                FROM filtered_df
+                WHERE "WorkStatus" = 'Cancelled'
+                ORDER BY "OrderDate" DESC
+            """
+            cancelled_df = duckdb.query(cancelled_query).df()
+            st.dataframe(
+                cancelled_df,
+                use_container_width=True,
+                column_config={
+                    'OrderDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
+                    'RequiredByDate': st.column_config.DateColumn(format="MM/DD/YYYY"),
+                    'ActualStartDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
+                    'ActualEndDateTime': st.column_config.DatetimeColumn(format="MM/DD/YYYY HH:mm"),
+                    'Duration': st.column_config.NumberColumn(format="%.2f hrs", min_value=0)
+                }
+            )
+        else:
+            st.write("No cancelled work orders based on current filters.")
+
     
     # New: Emergency Work Orders
     with st.expander("🚨 Emergency Work Orders"):
