@@ -10,6 +10,7 @@ import duckdb
 import numpy as np
 import os
 import base64
+import psutil
 
 
 st.set_page_config(page_title="GPMS Maintenance Dashboard", page_icon=":bar_chart:", layout="wide")
@@ -115,6 +116,16 @@ def load_data_cached():
 
 # ✅ Load data based on button click
 df = load_data_uncached() if refresh_data else load_data_cached()
+
+# -----------------------------------------
+# Memory Usage Monitoring
+# -----------------------------------------
+process = psutil.Process(os.getpid())
+mem_info = process.memory_info()
+mem_mb = mem_info.rss / 1024**2  # Convert bytes to MB
+
+st.sidebar.markdown(f"🔍 **Memory Usage:** {mem_mb:.2f} MB")
+
 
 # -----------------------------------------
 # Current Date and Dashboard Header
