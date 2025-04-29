@@ -595,7 +595,7 @@ st.markdown("""
 # -----------------------------------------
 # Dashboard Tabs
 # -----------------------------------------
-dashboard_tab, table_metrics_tab = st.tabs(["Dashboard", "Table Metrics"])
+dashboard_tab, table_metrics_tab, gantt_chart_tab = st.tabs(["Dashboard", "Table Metrics", "Gantt Chart"])
 
 with dashboard_tab:
     # Weekly Metrics (KPIs 1-3)
@@ -1717,6 +1717,43 @@ with table_metrics_tab:
         else:
             st.warning("No buoy bush change-out data for the selected filters.")
 
+
+# -----------------------------------------
+# Gannt Chart Tab
+# -----------------------------------------
+with gantt_chart_tab:
+    st.markdown("📅 Gantt Chart – Scheduling View")
+
+    gantt_df = filtered_df[
+        (filtered_df['WorkStatus'].isin(['Open', 'In Progress', 'Waiting for Parts', 'Backlog'])) &
+        (filtered_df['RequiredByDate'].notnull())
+    ].copy()
+
+    if not gantt_df.empty:
+        gantt_df['StartDate'] = gantt_df['RequiredByDate'] - pd.Timedelta(days=6)  # (you can adjust how many days before)
+        gantt_df['EndDate'] = gantt_df['RequiredByDate']
+
+        fig_gantt = px.timeline(
+            gantt_df,
+            x_start="StartDate",
+            x_end="EndDate",
+            y="Order",
+            color="ParentLocation",
+            hover_data=["WorkDescription", "WorkPriority", "SystemType"],
+            title="Gantt Chart – All Active (Open/In-Progress) Work Orders"
+        )
+        fig_gantt.update_yaxes(autorange="reversed")
+        fig_gantt.update_layout(
+            xaxis_title="Timeline",
+            yaxis_title="Work Order",
+            margin=dict(l=40, r=40, t=40, b=40),
+            font=dict(size=14, color="white"),
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)"
+        )
+        st.plotly_chart(fig_gantt, use_container_width=True)
+    else:
+        st.info("No open or in-progress work orders available for Gantt scheduling view.")
 
     # Apply consistent styling
     st.markdown("""
