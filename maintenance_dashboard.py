@@ -57,19 +57,62 @@ def parse_dates(df, date_columns):
 
 # Helper function to calculate duration
 def calculate_duration(row):
+    """
+    Calculate the duration in hours between start and end datetimes.
+    
+    Args:
+        row: DataFrame row containing ActualStartDateTime and ActualEndDateTime
+        
+    Returns:
+        float: Duration in hours or None if either datetime is missing
+    """
     if pd.notnull(row['ActualStartDateTime']) and pd.notnull(row['ActualEndDateTime']):
         return (row['ActualEndDateTime'] - row['ActualStartDateTime']).total_seconds() / 3600
     return None
+
+# Helper function to create consistent chart styling
+def apply_chart_styling(fig, title, xaxis_title=None, yaxis_title=None):
+    """
+    Apply consistent styling to Plotly charts.
+    
+    Args:
+        fig: Plotly figure object
+        title: Chart title
+        xaxis_title: X-axis title (optional)
+        yaxis_title: Y-axis title (optional)
+        
+    Returns:
+        fig: Styled Plotly figure
+    """
+    fig.update_layout(
+        title=title,
+        xaxis_title=xaxis_title,
+        yaxis_title=yaxis_title,
+        margin=dict(l=40, r=40, t=40, b=40),
+        font=dict(size=14, color="white"),
+        plot_bgcolor='rgba(0, 0, 0, 0)',
+        paper_bgcolor='rgba(0, 0, 0, 0)'
+    )
+    return fig
 
 # -----------------------------------------
 # Data Loading and Preprocessing
 # -----------------------------------------
 def load_data_uncached():
+    """
+    Load and preprocess data from the Excel file without caching.
+    
+    Returns:
+        pd.DataFrame: Processed dataframe with calculated fields or empty dataframe if file not found
+    """
     file_path = "Asset Work History.xlsx"  
     try:
         df = pd.read_excel(file_path)  
     except FileNotFoundError:
         st.error(f"File not found: {file_path}")
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Error loading data: {str(e)}")
         return pd.DataFrame()
 
     # Parse date and datetime columns
@@ -215,6 +258,22 @@ if filtered_df.empty:
 # Metrics Calculation
 # -----------------------------------------
 def calculate_work_order_metrics(df):
+    """
+    Calculate various work order metrics from the provided dataframe.
+    
+    This function computes a wide range of maintenance KPIs including:
+    - Weekly metrics (open, completed, in-progress work orders)
+    - High-level counts (total, open, completed, backlog, emergency)
+    - Percentage-based metrics (PM compliance, PMP, corrective percentage)
+    - Trend data for PMP and completion rates
+    - Location-based metrics
+    
+    Args:
+        df (pd.DataFrame): Filtered dataframe containing work order data
+        
+    Returns:
+        dict: Dictionary containing all calculated metrics
+    """
     duckdb.register('df', df)
     
     # Weekly Metrics (KPIs 1-3)
@@ -399,24 +458,34 @@ def calculate_work_order_metrics(df):
         AND "WorkStatus" IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog')
         AND "ActualEndDateTime" BETWEEN ? AND ?
         """
-        pmp_month_result = duckdb.query(pmp_month_query, params=[month_start, month_end]).fetchone()
-        planned_hours_month, total_hours_month = pmp_month_result or (0, 0)
-        total_hours_month = total_hours_month if total_hours_month is not None else 0
-        pmp_month = (planned_hours_month / total_hours_month * 100) if total_hours_month > 0 else 0
+        try:
+            pmp_month_result = duckdb.query(pmp_month_query, params=[month_start, month_end]).fetchone()
+            planned_hours_month, total_hours_month = pmp_month_result or (0, 0)
+            total_hours_month = total_hours_month if total_hours_month is not None else 0
+            pmp_month = (planned_hours_month / total_hours_month * 100) if total_hours_month > 0 else 0
+        except Exception as e:
+            print(f"Error calculating PMP for month {month_label}: {e}")
+            pmp_month = 0
+        
         pmp_trend.append({'Month': month_label, 'PMP': pmp_month})
 
-        completion_month_query = """
-        SELECT 
-            SUM(CASE WHEN "WorkStatus" IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog') THEN 1 ELSE 0 END) as completed,
-            COUNT(*) as total
-        FROM df
-        WHERE "ActualEndDateTime" IS NOT NULL
-        AND "ActualEndDateTime" BETWEEN ? AND ?
-        """
-        completion_month_result = duckdb.query(completion_month_query, params=[month_start, month_end]).fetchone()
-        completed_month, total_month = completion_month_result or (0, 0)
-        total_month = total_month if total_month is not None else 0
-        completion_rate_month = (completed_month / total_month * 100) if total_month > 0 else 0
+        try:
+            completion_month_query = """
+            SELECT 
+                SUM(CASE WHEN "WorkStatus" IN ('Closed', 'Completed', 'Closed - Was Backlog', 'Completed - Was Backlog') THEN 1 ELSE 0 END) as completed,
+                COUNT(*) as total
+            FROM df
+            WHERE "ActualEndDateTime" IS NOT NULL
+            AND "ActualEndDateTime" BETWEEN ? AND ?
+            """
+            completion_month_result = duckdb.query(completion_month_query, params=[month_start, month_end]).fetchone()
+            completed_month, total_month = completion_month_result or (0, 0)
+            total_month = total_month if total_month is not None else 0
+            completion_rate_month = (completed_month / total_month * 100) if total_month > 0 else 0
+        except Exception as e:
+            print(f"Error calculating completion rate for month {month_label}: {e}")
+            completion_rate_month = 0
+            
         completion_rate_trend.append({'Month': month_label, 'Completion Rate': completion_rate_month})
 
     pmp_trend_df = pd.DataFrame(pmp_trend)
@@ -796,16 +865,13 @@ with dashboard_tab:
                 color='ParentLocation',
                 color_discrete_sequence=px.colors.qualitative.Pastel1
             )
-            fig_location.update_layout(
+            fig_location = apply_chart_styling(
+                fig_location,
+                title='Work Orders by Location',
                 xaxis_title="Location",
-                yaxis_title="Work Order Count",
-                margin=dict(l=40, r=40, t=40, b=40),
-                font=dict(size=14, color="white"),
-                plot_bgcolor='rgba(0, 0, 0, 0)',
-                paper_bgcolor='rgba(0, 0, 0, 0)',
-                bargap=0,
-                bargroupgap=0.1
+                yaxis_title="Work Order Count"
             )
+            fig_location.update_layout(bargap=0, bargroupgap=0.1)
             st.plotly_chart(fig_location, use_container_width=True)
 
     # KPI 15: Work Orders by Priority Level
@@ -826,16 +892,13 @@ with dashboard_tab:
                 color='WorkPriority',
                 color_discrete_sequence=px.colors.qualitative.Pastel1
             )
-            fig_priority.update_layout(
+            fig_priority = apply_chart_styling(
+                fig_priority,
+                title='Work Orders by Priority',
                 xaxis_title="Priority Level",
-                yaxis_title="Work Order Count",
-                margin=dict(l=40, r=40, t=40, b=40),
-                font=dict(size=14, color="white"),
-                plot_bgcolor='rgba(0, 0, 0, 0)',
-                paper_bgcolor='rgba(0, 0, 0, 0)',
-                bargap=0,
-                bargroupgap=0.1
+                yaxis_title="Work Order Count"
             )
+            fig_priority.update_layout(bargap=0, bargroupgap=0.1)
             st.plotly_chart(fig_priority, use_container_width=True)
 
     # KPI 16: Percentage of Work Orders by Work Type
@@ -854,11 +917,9 @@ with dashboard_tab:
                 title='Percentage of Work Orders by Work Type',
                 color_discrete_sequence=px.colors.qualitative.Pastel1
             )
-            fig_work_type.update_layout(
-                margin=dict(l=40, r=40, t=40, b=40),
-                font=dict(size=14, color="white"),
-                plot_bgcolor='rgba(0, 0, 0, 0)',
-                paper_bgcolor='rgba(0, 0, 0, 0)'
+            fig_work_type = apply_chart_styling(
+                fig_work_type,
+                title='Percentage of Work Orders by Work Type'
             )
             st.plotly_chart(fig_work_type, use_container_width=True)
 
