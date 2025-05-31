@@ -1,0 +1,191 @@
+
+<html>
+<head>
+<style>
+body { font-family: Arial, sans-serif; margin: 20px; }
+h1 { text-align: center; color: #333; }
+table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+th { background-color: #4CAF50; color: white; }
+tr:nth-child(even) { background-color: #f2f2f2; }
+tr:hover { background-color: #ddd; }
+</style>
+</head>
+<body>
+<h1>GPMS Maintenance Dashboard KPI Manual</h1>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th>KPI Number</th>
+      <th>KPI Name</th>
+      <th>Definition</th>
+      <th>Formula</th>
+      <th>Insight (Why?)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>KPI 1</td>
+      <td>Current Open Work Orders</td>
+      <td>The total number of maintenance tasks that are not yet completed or closed.</td>
+      <td>Total number of work orders with status not marked as completed or closed.</td>
+      <td>Shows the current workload, helping managers allocate resources and identify potential delays.</td>
+    </tr>
+    <tr>
+      <td>KPI 2</td>
+      <td>Completed Work Orders for Week</td>
+      <td>The number of maintenance tasks finished during the current week.</td>
+      <td>Total number of work orders completed in the week.</td>
+      <td>Measures weekly productivity, indicating how efficiently the team is resolving tasks.</td>
+    </tr>
+    <tr>
+      <td>KPI 3</td>
+      <td>Work Orders In Progress</td>
+      <td>The number of maintenance tasks currently being worked on.</td>
+      <td>Total number of work orders with an 'In Progress' status.</td>
+      <td>Reflects active maintenance efforts, aiding in resource planning and workload management.</td>
+    </tr>
+    <tr>
+      <td>KPI 4</td>
+      <td>Total Work Orders (Filtered)</td>
+      <td>The total number of maintenance tasks within the selected filters (e.g., time period or location).</td>
+      <td>Total number of work orders in the filtered dataset.</td>
+      <td>Provides context for the scope of maintenance activities, helping assess overall activity levels.</td>
+    </tr>
+    <tr>
+      <td>KPI 5</td>
+      <td>Completed Work Orders (Filtered)</td>
+      <td>The number of maintenance tasks completed within the selected filters.</td>
+      <td>Total number of work orders marked as completed in the filtered dataset.</td>
+      <td>Indicates completion success within specific criteria, highlighting team performance.</td>
+    </tr>
+    <tr>
+      <td>KPI 6</td>
+      <td>Emergency Maintenance YTD</td>
+      <td>The number of unplanned breakdown repairs completed since the start of the year.</td>
+      <td>Total number of breakdown work orders completed year-to-date.</td>
+      <td>High emergency repairs suggest equipment reliability issues, prompting preventive actions.</td>
+    </tr>
+    <tr>
+      <td>KPI 7</td>
+      <td>Backlog Count YTD</td>
+      <td>The number of maintenance tasks overdue since the start of the current year.</td>
+      <td>Total number of open work orders past their due date in the current year.</td>
+      <td>Tracks delays, helping prioritize overdue tasks and improve scheduling.</td>
+    </tr>
+    <tr>
+      <td>KPI 8</td>
+      <td>Backlog Count Total</td>
+      <td>The total number of maintenance tasks overdue across all years.</td>
+      <td>Total number of open work orders past their due date.</td>
+      <td>Signals long-term inefficiencies, guiding process improvements to reduce backlog.</td>
+    </tr>
+    <tr>
+      <td>KPI 9</td>
+      <td>Projects In Progress</td>
+      <td>The number of ongoing major maintenance or improvement projects.</td>
+      <td>Total number of project-type work orders with an 'In Progress' status.</td>
+      <td>Tracks active projects, supporting resource allocation and project timeline management.</td>
+    </tr>
+    <tr>
+      <td>KPI 10</td>
+      <td>Total Projects YTD</td>
+      <td>The total number of major maintenance or improvement projects completed since the start of the year.</td>
+      <td>Total number of project-type work orders completed year-to-date.</td>
+      <td>Measures project activity, reflecting progress on strategic initiatives.</td>
+    </tr>
+    <tr>
+      <td>KPI 11</td>
+      <td>Planned Maintenance Percentage (PMP)</td>
+      <td>The percentage of maintenance hours spent on planned, proactive tasks (e.g., inspections, scheduled repairs).</td>
+      <td>(Total hours spent on planned maintenance) ÷ (Total maintenance hours) × 100</td>
+      <td>A high PMP (≥85%) indicates proactive maintenance, reducing downtime and costs.</td>
+    </tr>
+    <tr>
+      <td>KPI 12</td>
+      <td>Corrective Maintenance Percentage</td>
+      <td>The percentage of maintenance hours spent on unplanned or breakdown repairs.</td>
+      <td>(Total hours spent on corrective maintenance) ÷ (Total maintenance hours) × 100</td>
+      <td>A high percentage suggests reactive maintenance, increasing costs and downtime.</td>
+    </tr>
+    <tr>
+      <td>KPI 13</td>
+      <td>Work Order Completion Rate</td>
+      <td>The percentage of maintenance tasks completed out of all tasks.</td>
+      <td>(Number of completed work orders) ÷ (Total number of work orders) × 100</td>
+      <td>A high rate (≥90%) reflects efficient operations and effective task management.</td>
+    </tr>
+    <tr>
+      <td>KPI 14</td>
+      <td>Work Orders by Location</td>
+      <td>The distribution of maintenance tasks across different facility locations.</td>
+      <td>Number of work orders per location.</td>
+      <td>Identifies high-maintenance areas, guiding resource allocation and facility inspections.</td>
+    </tr>
+    <tr>
+      <td>KPI 15</td>
+      <td>Work Orders by Priority</td>
+      <td>The distribution of maintenance tasks by urgency level (e.g., high, medium, low).</td>
+      <td>Number of work orders per priority level.</td>
+      <td>Highlights critical tasks, ensuring high-priority issues are addressed promptly.</td>
+    </tr>
+    <tr>
+      <td>KPI 16</td>
+      <td>Work Orders by Work Type</td>
+      <td>The percentage breakdown of maintenance tasks by type (e.g., planned, corrective, projects).</td>
+      <td>(Number of work orders per work type) ÷ (Total number of work orders) × 100</td>
+      <td>Shows the mix of maintenance activities, helping balance proactive vs. reactive work.</td>
+    </tr>
+    <tr>
+      <td>KPI 17</td>
+      <td>PMP vs. Corrective Maintenance</td>
+      <td>A comparison of hours spent on planned vs. corrective maintenance tasks.</td>
+      <td>Planned hours and corrective hours displayed as proportions of total hours.</td>
+      <td>Visualizes maintenance strategy; high corrective hours indicate reactive issues.</td>
+    </tr>
+    <tr>
+      <td>KPI 18</td>
+      <td>Monthly Work Order Trends</td>
+      <td>The number of total and completed work orders over the past six months.</td>
+      <td>Total and completed work orders per month.</td>
+      <td>Tracks trends, revealing seasonal patterns or process improvements.</td>
+    </tr>
+    <tr>
+      <td>KPI 19</td>
+      <td>Work Order On-Time Completion</td>
+      <td>The percentage of maintenance tasks completed by their due date.</td>
+      <td>(Number of on-time work orders) ÷ (Total completed work orders with due dates) × 100</td>
+      <td>High on-time rates (≥90%) indicate reliable scheduling and execution.</td>
+    </tr>
+    <tr>
+      <td>KPI 20</td>
+      <td>PM Compliance by Location</td>
+      <td>The percentage of planned maintenance tasks completed on time at each location.</td>
+      <td>(Number of on-time planned work orders per location) ÷ (Total planned work orders per location) × 100</td>
+      <td>Identifies compliance gaps by location, guiding targeted improvements.</td>
+    </tr>
+    <tr>
+      <td>KPI 21</td>
+      <td>Top 10 Work Types by Count</td>
+      <td>The ten most common types of maintenance tasks and their cumulative share.</td>
+      <td>Number of work orders per work type, with cumulative percentage.</td>
+      <td>Highlights dominant activities, aiding resource planning and optimization.</td>
+    </tr>
+    <tr>
+      <td>KPI 22</td>
+      <td>Top 10 Failure Types by Count</td>
+      <td>The ten most common reasons for equipment failures and their cumulative share.</td>
+      <td>Number of work orders per failure type, with cumulative percentage.</td>
+      <td>Identifies frequent failure modes, informing preventive strategies.</td>
+    </tr>
+    <tr>
+      <td>KPI 23</td>
+      <td>Top 10 System Types by Count</td>
+      <td>The ten most common equipment or system types requiring maintenance and their cumulative share.</td>
+      <td>Number of work orders per system type, with cumulative percentage.</td>
+      <td>Pinpoints high-maintenance systems, guiding reliability improvements.</td>
+    </tr>
+  </tbody>
+</table>
+</body>
+</html>
