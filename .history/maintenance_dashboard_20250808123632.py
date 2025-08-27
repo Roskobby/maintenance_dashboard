@@ -107,11 +107,7 @@ def load_data_uncached():
     """
     file_path = "Asset Work History.xlsx"  
     try:
-        # Try to read the Excel file with better error handling
-        df = pd.read_excel(file_path, engine='openpyxl')  
-    except PermissionError:
-        st.error(f"Permission denied: '{file_path}' is currently open in another program. Please close Excel and try again.")
-        return pd.DataFrame()
+        df = pd.read_excel(file_path)  
     except FileNotFoundError:
         st.error(f"File not found: {file_path}")
         return pd.DataFrame()
@@ -150,27 +146,23 @@ def load_data_uncached():
     reference_date = df['RequiredByDate'].combine_first(df['OrderDate']).combine_first(df['ActualEndDateTime'])
     df['WeekOfYear'] = reference_date.dt.isocalendar().week
 
-    # Year for filtering (MonthName already exists in Excel)
-    if 'Year' not in df.columns:
+    # Month and Year for filtering
+    if 'OrderDate' in df.columns and not df['OrderDate'].isna().all():
+        df['Month Name'] = df['OrderDate'].dt.strftime('%B')
         df['Year'] = df['OrderDate'].dt.year
+    else:
+        # Create empty columns if OrderDate is not available or all NaN
+        df['Month Name'] = None
+        df['Year'] = None
 
     return df
 
-@st.cache_data(show_spinner=False)
+@st.cache_data
 def load_data_cached():
     return load_data_uncached()
 
 # ✅ Load data based on button click
-if refresh_data:
-    st.cache_data.clear()  # Clear cache when refresh is clicked
-    df = load_data_uncached()
-else:
-    df = load_data_cached()
-
-# Check if DataFrame is empty
-if df.empty:
-    st.error("No data available. Please check your Excel file and make sure it's not open in another program.")
-    st.stop()
+df = load_data_uncached() if refresh_data else load_data_cached()
 
 # -----------------------------------------
 # Current Date and Dashboard Header
@@ -200,10 +192,39 @@ st.markdown(
 # Dashboard Filters
 # -----------------------------------------
 with st.container():
-    # Define filter options
-    month_options = ['All'] + sorted(df['MonthName'].dropna().unique(), key=lambda x: pd.to_datetime(x, format='%B').month)
-    year_options = ['All'] + sorted(df['Year'].dropna().astype(int).unique())
-    week_options = ['All'] + sorted(df['WeekOfYear'].dropna().astype(int).unique())
+    # Define filter options with error handling
+    try:
+        # Check if Month Name column exists and has valid data
+        if 'Month Name' in df.columns and not df['Month Name'].isna().all():
+            month_options = ['All'] + sorted(df['Month Name'].dropna().unique(), key=lambda x: pd.to_datetime(x, format='%B').month)
+        else:
+            month_options = ['All']
+            st.warning("Month Name data is not available. Month filtering will be limited.")
+    except Exception as e:
+        month_options = ['All']
+        st.warning(f"Error processing month data: {str(e)}. Month filtering will be limited.")
+    
+    try:
+        # Check if Year column exists and has valid data
+        if 'Year' in df.columns and not df['Year'].isna().all():
+            year_options = ['All'] + sorted(df['Year'].dropna().astype(int).unique())
+        else:
+            year_options = ['All']
+            st.warning("Year data is not available. Year filtering will be limited.")
+    except Exception as e:
+        year_options = ['All']
+        st.warning(f"Error processing year data: {str(e)}. Year filtering will be limited.")
+    
+    try:
+        # Check if WeekOfYear column exists and has valid data
+        if 'WeekOfYear' in df.columns and not df['WeekOfYear'].isna().all():
+            week_options = ['All'] + sorted(df['WeekOfYear'].dropna().astype(int).unique())
+        else:
+            week_options = ['All']
+            st.warning("Week data is not available. Week filtering will be limited.")
+    except Exception as e:
+        week_options = ['All']
+        st.warning(f"Error processing week data: {str(e)}. Week filtering will be limited.")
     
     current_year = current_date.year
     current_month_num = current_date.month
@@ -249,9 +270,9 @@ with st.container():
 # Apply Filters to Data
 # -----------------------------------------
 filtered_df = df.copy()
-if selected_months and 'All' not in selected_months:
-    filtered_df = filtered_df[filtered_df['MonthName'].isin(selected_months)]
-if selected_years and 'All' not in selected_years:
+if selected_months and 'All' not in selected_months and 'Month Name' in df.columns:
+    filtered_df = filtered_df[filtered_df['Month Name'].isin(selected_months)]
+if selected_years and 'All' not in selected_years and 'Year' in df.columns:
     filtered_df = filtered_df[filtered_df['Year'].isin(selected_years)]
 if selected_work_types and 'All' not in selected_work_types:
     filtered_df = filtered_df[filtered_df['WorkType'].isin(selected_work_types)]

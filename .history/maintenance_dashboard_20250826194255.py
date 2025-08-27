@@ -156,20 +156,16 @@ def load_data_uncached():
 
     return df
 
-@st.cache_data(show_spinner=False)
+@st.cache_data
 def load_data_cached():
     return load_data_uncached()
 
 # ✅ Load data based on button click
-if refresh_data:
-    st.cache_data.clear()  # Clear cache when refresh is clicked
-    df = load_data_uncached()
-else:
-    df = load_data_cached()
+df = load_data_uncached() if refresh_data else load_data_cached()
 
 # Check if DataFrame is empty
 if df.empty:
-    st.error("No data available. Please check your Excel file and make sure it's not open in another program.")
+    st.error("No data available. Please check your Excel file.")
     st.stop()
 
 # -----------------------------------------

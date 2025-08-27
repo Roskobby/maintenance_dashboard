@@ -107,11 +107,7 @@ def load_data_uncached():
     """
     file_path = "Asset Work History.xlsx"  
     try:
-        # Try to read the Excel file with better error handling
-        df = pd.read_excel(file_path, engine='openpyxl')  
-    except PermissionError:
-        st.error(f"Permission denied: '{file_path}' is currently open in another program. Please close Excel and try again.")
-        return pd.DataFrame()
+        df = pd.read_excel(file_path)  
     except FileNotFoundError:
         st.error(f"File not found: {file_path}")
         return pd.DataFrame()
@@ -150,27 +146,18 @@ def load_data_uncached():
     reference_date = df['RequiredByDate'].combine_first(df['OrderDate']).combine_first(df['ActualEndDateTime'])
     df['WeekOfYear'] = reference_date.dt.isocalendar().week
 
-    # Year for filtering (MonthName already exists in Excel)
-    if 'Year' not in df.columns:
-        df['Year'] = df['OrderDate'].dt.year
+    # Month and Year for filtering
+    df['MonthName'] = df['OrderDate'].dt.strftime('%B')
+    df['Year'] = df['OrderDate'].dt.year
 
     return df
 
-@st.cache_data(show_spinner=False)
+@st.cache_data
 def load_data_cached():
     return load_data_uncached()
 
 # ✅ Load data based on button click
-if refresh_data:
-    st.cache_data.clear()  # Clear cache when refresh is clicked
-    df = load_data_uncached()
-else:
-    df = load_data_cached()
-
-# Check if DataFrame is empty
-if df.empty:
-    st.error("No data available. Please check your Excel file and make sure it's not open in another program.")
-    st.stop()
+df = load_data_uncached() if refresh_data else load_data_cached()
 
 # -----------------------------------------
 # Current Date and Dashboard Header

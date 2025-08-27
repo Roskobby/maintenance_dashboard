@@ -107,11 +107,7 @@ def load_data_uncached():
     """
     file_path = "Asset Work History.xlsx"  
     try:
-        # Try to read the Excel file with better error handling
-        df = pd.read_excel(file_path, engine='openpyxl')  
-    except PermissionError:
-        st.error(f"Permission denied: '{file_path}' is currently open in another program. Please close Excel and try again.")
-        return pd.DataFrame()
+        df = pd.read_excel(file_path)  
     except FileNotFoundError:
         st.error(f"File not found: {file_path}")
         return pd.DataFrame()
@@ -150,27 +146,18 @@ def load_data_uncached():
     reference_date = df['RequiredByDate'].combine_first(df['OrderDate']).combine_first(df['ActualEndDateTime'])
     df['WeekOfYear'] = reference_date.dt.isocalendar().week
 
-    # Year for filtering (MonthName already exists in Excel)
-    if 'Year' not in df.columns:
-        df['Year'] = df['OrderDate'].dt.year
+    # Month and Year for filtering
+    df['Month Name'] = df['OrderDate'].dt.strftime('%B')
+    df['Year'] = df['OrderDate'].dt.year
 
     return df
 
-@st.cache_data(show_spinner=False)
+@st.cache_data
 def load_data_cached():
     return load_data_uncached()
 
 # ✅ Load data based on button click
-if refresh_data:
-    st.cache_data.clear()  # Clear cache when refresh is clicked
-    df = load_data_uncached()
-else:
-    df = load_data_cached()
-
-# Check if DataFrame is empty
-if df.empty:
-    st.error("No data available. Please check your Excel file and make sure it's not open in another program.")
-    st.stop()
+df = load_data_uncached() if refresh_data else load_data_cached()
 
 # -----------------------------------------
 # Current Date and Dashboard Header
@@ -201,7 +188,7 @@ st.markdown(
 # -----------------------------------------
 with st.container():
     # Define filter options
-    month_options = ['All'] + sorted(df['MonthName'].dropna().unique(), key=lambda x: pd.to_datetime(x, format='%B').month)
+    month_options = ['All'] + sorted(df['Month Name'].dropna().unique(), key=lambda x: pd.to_datetime(x, format='%B').month)
     year_options = ['All'] + sorted(df['Year'].dropna().astype(int).unique())
     week_options = ['All'] + sorted(df['WeekOfYear'].dropna().astype(int).unique())
     
@@ -249,19 +236,19 @@ with st.container():
 # Apply Filters to Data
 # -----------------------------------------
 filtered_df = df.copy()
-if selected_months and 'All' not in selected_months:
+if selected_months and 'All' not in selected_months and 'MonthName' in df.columns:
     filtered_df = filtered_df[filtered_df['MonthName'].isin(selected_months)]
-if selected_years and 'All' not in selected_years:
+if selected_years and 'All' not in selected_years and 'Year' in df.columns:
     filtered_df = filtered_df[filtered_df['Year'].isin(selected_years)]
-if selected_work_types and 'All' not in selected_work_types:
+if selected_work_types and 'All' not in selected_work_types and 'WorkType' in df.columns:
     filtered_df = filtered_df[filtered_df['WorkType'].isin(selected_work_types)]
-if selected_work_status and 'All' not in selected_work_status:
+if selected_work_status and 'All' not in selected_work_status and 'WorkStatus' in df.columns:
     filtered_df = filtered_df[filtered_df['WorkStatus'].isin(selected_work_status)] 
-if selected_work_priority and 'All' not in selected_work_priority:
+if selected_work_priority and 'All' not in selected_work_priority and 'WorkPriority' in df.columns:
     filtered_df = filtered_df[filtered_df['WorkPriority'].isin(selected_work_priority)]
-if selected_locations and 'All' not in selected_locations:
+if selected_locations and 'All' not in selected_locations and 'ParentLocation' in df.columns:
     filtered_df = filtered_df[filtered_df['ParentLocation'].isin(selected_locations)]
-if selected_weeks and 'All' not in selected_weeks:
+if selected_weeks and 'All' not in selected_weeks and 'WeekOfYear' in df.columns:
     filtered_df = filtered_df[filtered_df['WeekOfYear'].isin(selected_weeks)]
 
 if filtered_df.empty:
@@ -506,9 +493,11 @@ def calculate_work_order_metrics(df):
     completion_rate_trend_df = pd.DataFrame(completion_rate_trend)
 
     # Location-Based Metrics for Table
-    week_filter = "" if not selected_weeks or 'All' in selected_weeks else "AND WeekOfYear IN ({})".format(
-        ",".join([str(w) for w in selected_weeks])
-    )
+    week_filter = ""
+    if selected_weeks and 'All' not in selected_weeks and 'WeekOfYear' in df.columns:
+        week_filter = "AND WeekOfYear IN ({})".format(
+            ",".join([str(w) for w in selected_weeks])
+        )
     location_metrics_query = f"""
     SELECT 
         "ParentLocation",

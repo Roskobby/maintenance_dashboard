@@ -107,11 +107,7 @@ def load_data_uncached():
     """
     file_path = "Asset Work History.xlsx"  
     try:
-        # Try to read the Excel file with better error handling
-        df = pd.read_excel(file_path, engine='openpyxl')  
-    except PermissionError:
-        st.error(f"Permission denied: '{file_path}' is currently open in another program. Please close Excel and try again.")
-        return pd.DataFrame()
+        df = pd.read_excel(file_path)  
     except FileNotFoundError:
         st.error(f"File not found: {file_path}")
         return pd.DataFrame()
@@ -156,21 +152,12 @@ def load_data_uncached():
 
     return df
 
-@st.cache_data(show_spinner=False)
+@st.cache_data
 def load_data_cached():
     return load_data_uncached()
 
 # ✅ Load data based on button click
-if refresh_data:
-    st.cache_data.clear()  # Clear cache when refresh is clicked
-    df = load_data_uncached()
-else:
-    df = load_data_cached()
-
-# Check if DataFrame is empty
-if df.empty:
-    st.error("No data available. Please check your Excel file and make sure it's not open in another program.")
-    st.stop()
+df = load_data_uncached() if refresh_data else load_data_cached()
 
 # -----------------------------------------
 # Current Date and Dashboard Header
