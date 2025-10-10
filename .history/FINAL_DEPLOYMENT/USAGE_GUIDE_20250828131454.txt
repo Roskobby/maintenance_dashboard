@@ -1,0 +1,69 @@
+GPMS MAINTENANCE DASHBOARD - Usage Guide
+=======================================
+
+WHICH FILE TO USE:
+------------------
+
+🔧 INSTALL_AND_RUN.bat (RECOMMENDED)
+   - Use this for FIRST TIME setup on any computer
+   - Use this if you get errors about missing packages
+   - Checks and installs all required software automatically
+   - Takes longer but ensures everything works perfectly
+   - NOW DETECTS existing packages and skips installation!
+
+⚡ Quick_Start.bat (FOR DAILY USE)
+   - Use this for DAILY USE after initial setup
+   - Fast startup - no installation checks
+   - Only use if packages are already installed
+   - If this fails, use INSTALL_AND_RUN.bat instead
+
+📁 Start_Dashboard.bat (BACKUP)
+   - Alternative launcher if others don't work
+   - Similar to INSTALL_AND_RUN.bat
+
+
+SETUP INSTRUCTIONS:
+-------------------
+
+1. FIRST TIME on any computer:
+   - Double-click "INSTALL_AND_RUN.bat"
+   - Follow the on-screen instructions
+   - Wait for installation to complete (5-10 minutes first time)
+
+2. DAILY USE (after first setup):
+   - Use "Quick_Start.bat" for faster startup
+   - OR use "INSTALL_AND_RUN.bat" (now detects existing packages)
+
+3. TROUBLESHOOTING:
+   - If Quick_Start.bat doesn't work, use INSTALL_AND_RUN.bat
+   - Make sure Python is installed with "Add to PATH" checked
+   - Run batch files "as administrator" if installation fails
+
+
+WHY INSTALL_AND_RUN.bat IS BETTER:
+----------------------------------
+✅ Works on ANY computer (with or without Python in PATH)
+✅ Finds Python even if not in PATH
+✅ Now detects existing packages (no re-installation)
+✅ Better error messages
+✅ Automatic manual installation instructions if needed
+✅ Works from shared folders
+
+
+FILES INCLUDED:
+---------------
+- maintenance_dashboard.py (main program)
+- Asset Work History.xlsx (data file)
+- kpi_manual.py (dashboard functions)
+- INSTALL_AND_RUN.bat (recommended launcher)
+- Quick_Start.bat (fast launcher)
+- Start_Dashboard.bat (backup launcher)
+
+
+NOTES:
+------
+- Dashboard runs in your web browser at http://localhost:8501
+- Close the black window to stop the dashboard
+- Multiple people can use it from the shared folder
+- Each computer needs Python installed once
+- Use INSTALL_AND_RUN.bat - it's the most reliable!
