@@ -1735,8 +1735,7 @@ with table_metrics_tab:
                         "ActualEndDateTime"
                     ) AS "DaysSinceLastChangeOut"
                 FROM filtered_df
-                WHERE "AssetName" ILIKE 'ABB-ME-BY-%'
-                AND "AssetDescription" ILIKE '%Buoy%'
+                WHERE "AssetName" ILIKE '%ABB-ME-BY%'
                 AND "WorkDescription" ILIKE '%UKP%Bush%'
                 ORDER BY "ActualEndDateTime" DESC
             """

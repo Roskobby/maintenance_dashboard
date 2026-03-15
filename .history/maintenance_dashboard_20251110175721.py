@@ -1737,7 +1737,10 @@ with table_metrics_tab:
                 FROM filtered_df
                 WHERE "AssetName" ILIKE 'ABB-ME-BY-%'
                 AND "AssetDescription" ILIKE '%Buoy%'
-                AND "WorkDescription" ILIKE '%UKP%Bush%'
+                AND ("WorkDescription" ILIKE '%UKP%Bush%Change out%' 
+                     OR "WorkDescription" ILIKE '%Change out%UKP%Bush%'
+                     OR "WorkDescription" ILIKE '%Replaced%UKP%Bush%'
+                     OR "WorkDescription" ILIKE '%UKP%Bush%Replaced%')
                 ORDER BY "ActualEndDateTime" DESC
             """
             reliability_df = duckdb.query(reliability_query).df()

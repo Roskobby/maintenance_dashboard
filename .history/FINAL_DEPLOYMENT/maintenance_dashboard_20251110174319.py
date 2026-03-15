@@ -1735,9 +1735,11 @@ with table_metrics_tab:
                         "ActualEndDateTime"
                     ) AS "DaysSinceLastChangeOut"
                 FROM filtered_df
-                WHERE "AssetName" ILIKE 'ABB-ME-BY-%'
-                AND "AssetDescription" ILIKE '%Buoy%'
-                AND "WorkDescription" ILIKE '%UKP%Bush%'
+                WHERE "AssetName" IN ('ABB-ME-BY-03', 'ABB-ME-BY-04', 'ABB-ME-BY-02', 'ABB-ME-BY-05')
+                AND "SystemType" = 'Buoy Body'
+                AND "FailureType" = 'Worn'
+                AND "RemedyType" = 'Replaced'
+                AND "WorkDescription" ILIKE '%UKP Bush%'
                 ORDER BY "ActualEndDateTime" DESC
             """
             reliability_df = duckdb.query(reliability_query).df()
