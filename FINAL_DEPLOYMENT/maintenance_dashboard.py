@@ -152,13 +152,22 @@ def load_data_uncached():
         'Unknown'
     )
 
-    # Week of the Year for filtering
+    # Build a shared reference date for time-based filters.
     reference_date = df['RequiredByDate'].combine_first(df['OrderDate']).combine_first(df['ActualEndDateTime'])
+
+    # Week of the Year for filtering
     df['WeekOfYear'] = reference_date.dt.isocalendar().week
 
-    # Year for filtering (MonthName already exists in Excel)
+    # MonthName and Year may be absent in some Excel exports; derive them safely.
+    if 'MonthName' not in df.columns:
+        df['MonthName'] = reference_date.dt.strftime('%B')
+    else:
+        df['MonthName'] = df['MonthName'].combine_first(reference_date.dt.strftime('%B'))
+
     if 'Year' not in df.columns:
-        df['Year'] = df['OrderDate'].dt.year
+        df['Year'] = reference_date.dt.year
+    else:
+        df['Year'] = df['Year'].combine_first(reference_date.dt.year)
 
     return df
 
