@@ -39,9 +39,6 @@ else:
 # 🔁 Reload Button Logic (Top of Main Page)
 refresh_data = st.button("🔁 Reload Data (Clear Cache)")
 
-if refresh_data:
-    st.rerun()
-
 # -----------------------------------------
 # Constants and Helper Functions
 # -----------------------------------------
