@@ -39,6 +39,9 @@ else:
 # 🔁 Reload Button Logic (Top of Main Page)
 refresh_data = st.button("🔁 Reload Data (Clear Cache)")
 
+if refresh_data:
+    st.rerun()
+
 # -----------------------------------------
 # Constants and Helper Functions
 # -----------------------------------------
@@ -149,22 +152,13 @@ def load_data_uncached():
         'Unknown'
     )
 
-    # Build the reference date for the week filter.
-    reference_date = df['RequiredByDate'].combine_first(df['OrderDate']).combine_first(df['ActualEndDateTime'])
-
     # Week of the Year for filtering
+    reference_date = df['RequiredByDate'].combine_first(df['OrderDate']).combine_first(df['ActualEndDateTime'])
     df['WeekOfYear'] = reference_date.dt.isocalendar().week
 
-    # MonthName and Year may be absent in some Excel exports; derive them safely.
-    if 'MonthName' not in df.columns:
-        df['MonthName'] = df['OrderDate'].dt.strftime('%B')
-    else:
-        df['MonthName'] = df['MonthName'].combine_first(df['OrderDate'].dt.strftime('%B'))
-
+    # Year for filtering (MonthName already exists in Excel)
     if 'Year' not in df.columns:
         df['Year'] = df['OrderDate'].dt.year
-    else:
-        df['Year'] = df['Year'].combine_first(df['OrderDate'].dt.year)
 
     return df
 
@@ -189,6 +183,7 @@ if df.empty:
 # -----------------------------------------
 current_date = pd.to_datetime(datetime.now().date())
 current_date_end = current_date + pd.Timedelta(hours=23, minutes=59, seconds=59)
+st.write(f"Current date set to: {current_date}")
 
 st.markdown(
     """
@@ -1156,13 +1151,11 @@ with dashboard_tab:
     st.markdown("### 📊 Pareto Analysis", unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
 
-    duckdb.register('filtered_df', filtered_df)
-
     # KPI 21: Top 10 Work Types by Count
     with col1:
         pareto_worktype_query = """
         SELECT "WorkType", COUNT(*) as count
-        FROM filtered_df
+        FROM df
         GROUP BY "WorkType"
         ORDER BY count DESC
         LIMIT 10
@@ -1201,7 +1194,7 @@ with dashboard_tab:
     with col2:
         pareto_failure_type_query = """
         SELECT "FailureType", COUNT(*) as count
-        FROM filtered_df
+        FROM df
         WHERE "FailureType" IS NOT NULL
         GROUP BY "FailureType"
         ORDER BY count DESC
@@ -1241,7 +1234,7 @@ with dashboard_tab:
     with col3:
         pareto_system_type_query = """
         SELECT "SystemType", COUNT(*) as count
-        FROM filtered_df
+        FROM df
         WHERE "SystemType" IS NOT NULL
         GROUP BY "SystemType"
         ORDER BY count DESC
@@ -1277,8 +1270,6 @@ with dashboard_tab:
         )
         st.plotly_chart(fig_pareto_system_type, use_container_width=True)
 
-    duckdb.unregister('filtered_df')
-
     # Data Table and Downloadable Report
     with st.expander("📄 Data Preview"):
         st.markdown("### Filtered Dataset", unsafe_allow_html=True)
@@ -1302,10 +1293,10 @@ with table_metrics_tab:
         st.markdown("#### PM Compliance by Location")
 
         # Current date context
-        pm_current_date = pd.to_datetime(datetime.now())
-        current_year = pm_current_date.year
-        current_month_index = pm_current_date.month
-        ytd_start = pm_current_date.replace(month=1, day=1)
+        current_date = pd.to_datetime(datetime.now())
+        current_year = current_date.year
+        current_month_index = current_date.month
+        ytd_start = current_date.replace(month=1, day=1)
 
         # Build list of expected months up to current
         expected_ytd_months = [datetime(current_year, m, 1).strftime('%B') for m in range(1, current_month_index + 1)]
@@ -1347,7 +1338,7 @@ with table_metrics_tab:
         """
 
         # Previous Week
-        prev_week = pm_current_date.isocalendar().week - 1
+        prev_week = current_date.isocalendar().week - 1
         prev_year = current_year if prev_week > 0 else current_year - 1
         if prev_week <= 0:
             prev_week = pd.to_datetime(f'{prev_year}-12-31').isocalendar().week
@@ -1370,12 +1361,12 @@ with table_metrics_tab:
         prev_week_df = prev_week_df.rename(columns={'pm_compliance': 'Previous Week Compliance (%)'}) if not prev_week_df.empty else pd.DataFrame(columns=['ParentLocation', 'Previous Week Compliance (%)'])
 
         # Current Month
-        current_month_start = pm_current_date.replace(day=1)
-        curr_month_df = duckdb.query(base_query, params=[current_month_start, pm_current_date]).df()
+        current_month_start = current_date.replace(day=1)
+        curr_month_df = duckdb.query(base_query, params=[current_month_start, current_date]).df()
         curr_month_df = curr_month_df.rename(columns={'pm_compliance': 'Current Month Compliance (%)'}) if not curr_month_df.empty else pd.DataFrame(columns=['ParentLocation', 'Current Month Compliance (%)'])
 
         # YTD always forced to current year to current date
-        ytd_df = duckdb.query(base_query, params=[ytd_start, pm_current_date]).df()
+        ytd_df = duckdb.query(base_query, params=[ytd_start, current_date]).df()
         ytd_df = ytd_df.rename(columns={'pm_compliance': 'YTD Compliance (%)'}) if not ytd_df.empty else pd.DataFrame(columns=['ParentLocation', 'YTD Compliance (%)'])
 
         compliance_df = prev_week_df.merge(curr_month_df, on='ParentLocation', how='outer')
@@ -1747,6 +1738,7 @@ with table_metrics_tab:
                 WHERE "AssetName" ILIKE 'ABB-ME-BY-%'
                 AND "AssetDescription" ILIKE '%Buoy%'
                 AND "WorkDescription" ILIKE '%UKP%Bush%'
+                AND ("WorkDescription" ILIKE '%Change out%' OR "WorkDescription" ILIKE '%Replaced%')
                 ORDER BY "ActualEndDateTime" DESC
             """
             reliability_df = duckdb.query(reliability_query).df()
@@ -1807,7 +1799,7 @@ with table_metrics_tab:
 
 
 # -----------------------------------------
-# Gantt Chart Tab
+# Gannt Chart Tab
 # -----------------------------------------
 with gantt_chart_tab:
     st.markdown("📅 Gantt Chart – Scheduling View")

@@ -149,7 +149,7 @@ def load_data_uncached():
         'Unknown'
     )
 
-    # Build a shared reference date for time-based filters.
+    # Build the reference date for the week filter.
     reference_date = df['RequiredByDate'].combine_first(df['OrderDate']).combine_first(df['ActualEndDateTime'])
 
     # Week of the Year for filtering
@@ -157,14 +157,14 @@ def load_data_uncached():
 
     # MonthName and Year may be absent in some Excel exports; derive them safely.
     if 'MonthName' not in df.columns:
-        df['MonthName'] = reference_date.dt.strftime('%B')
+        df['MonthName'] = df['OrderDate'].dt.strftime('%B')
     else:
-        df['MonthName'] = df['MonthName'].combine_first(reference_date.dt.strftime('%B'))
+        df['MonthName'] = df['MonthName'].combine_first(df['OrderDate'].dt.strftime('%B'))
 
     if 'Year' not in df.columns:
-        df['Year'] = reference_date.dt.year
+        df['Year'] = df['OrderDate'].dt.year
     else:
-        df['Year'] = df['Year'].combine_first(reference_date.dt.year)
+        df['Year'] = df['Year'].combine_first(df['OrderDate'].dt.year)
 
     return df
 
@@ -1744,11 +1744,9 @@ with table_metrics_tab:
                         "ActualEndDateTime"
                     ) AS "DaysSinceLastChangeOut"
                 FROM filtered_df
-                WHERE "AssetName" IN ('ABB-ME-BY-03', 'ABB-ME-BY-04', 'ABB-ME-BY-02', 'ABB-ME-BY-05')
-                AND "SystemType" = 'Buoy Body'
-                AND "FailureType" = 'Worn'
-                AND "RemedyType" = 'Replaced'
-                AND "WorkDescription" ILIKE '%UKP Bush%'
+                WHERE "AssetName" ILIKE 'ABB-ME-BY-%'
+                AND "AssetDescription" ILIKE '%Buoy%'
+                AND "WorkDescription" ILIKE '%UKP%Bush%'
                 ORDER BY "ActualEndDateTime" DESC
             """
             reliability_df = duckdb.query(reliability_query).df()
